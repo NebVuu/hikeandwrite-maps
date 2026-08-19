@@ -38,6 +38,15 @@ jobs:
           done
 
       - name: Install GDAL and tippecanoe (contours)
+        # DEBIAN_FRONTEND/NEEDRESTART_MODE: apt-get install on Ubuntu can
+        # hang indefinitely waiting for an interactive "restart services?"
+        # prompt (needrestart) that nothing running in CI can answer —
+        # confirmed 19.08.2026, the very first real run of this step sat
+        # stuck for 9+ minutes on exactly this before being cancelled.
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: |
           sudo apt-get update
           sudo apt-get install -y gdal-bin tippecanoe
