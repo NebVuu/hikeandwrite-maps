@@ -14,13 +14,19 @@
 // NOT verified against a real southern/western tile — check before
 // trusting it for a region south of the equator or west of Greenwich.
 //
-// Usage: node dem-tiles.js <boundary.geojson>
+// Usage: node dem-tiles.js <boundary.geojson> [padDegrees=0]
+//
+// padDegrees should match build-contours.sh's region-bbox.js pad (see
+// that script's comment) — otherwise the padded area at the border gets
+// cropped to nodata for lack of DEM coverage, quietly losing contour lines
+// right at the edge the pad exists to fill in.
 
 const fs = require('fs');
 
 const path = process.argv[2];
+const pad = process.argv[3] ? Number(process.argv[3]) : 0;
 if (!path) {
-  console.error('Usage: node dem-tiles.js <boundary.geojson>');
+  console.error('Usage: node dem-tiles.js <boundary.geojson> [padDegrees]');
   process.exit(1);
 }
 
@@ -32,10 +38,10 @@ const rings =
 const points = rings.flat();
 const lons = points.map((point) => point[0]);
 const lats = points.map((point) => point[1]);
-const minLon = Math.floor(Math.min(...lons));
-const maxLon = Math.floor(Math.max(...lons));
-const minLat = Math.floor(Math.min(...lats));
-const maxLat = Math.floor(Math.max(...lats));
+const minLon = Math.floor(Math.min(...lons) - pad);
+const maxLon = Math.floor(Math.max(...lons) + pad);
+const minLat = Math.floor(Math.min(...lats) - pad);
+const maxLat = Math.floor(Math.max(...lats) + pad);
 
 function cellName(lat, lon) {
   const ns = lat >= 0 ? 'N' : 'S';

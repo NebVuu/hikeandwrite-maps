@@ -18,6 +18,9 @@ iso=$(yq '.iso' "$region_file")
 name=$(yq '.name' "$region_file")
 poly_url=$(yq '.geofabrik_poly_url' "$region_file")
 maxzoom=$(yq '.maxzoom' "$region_file")
+# ~8-11km at these latitudes — matched by build-contours.sh so a country's
+# basemap and contour extracts cover the same ground near its border.
+border_pad_deg=0.1
 
 mkdir -p "$build_dir/boundaries" "$dist_dir"
 
@@ -48,8 +51,17 @@ if [ -z "$planet_url" ]; then
   exit 1
 fi
 
+# A strict --region=<geojson> cutline drops every tile past the
+# administrative border, even one step past it — confirmed 19.08.2026 by
+# diffing our extract's tiles against the raw planet build around Maglić
+# (whose summit sits ON the BA/Montenegro line): geometry was byte-identical
+# wherever both had data, but a whole diagonal block of tiles just past the
+# border was simply missing from ours, matching that border's real angle.
+# Padding the bbox outward keeps neighboring-country tiles along the border
+# available, so a border-ridge trail's far side isn't a hole in the map.
+bbox=$(node "$repo_root/scripts/region-bbox.js" "$geojson_path" "$border_pad_deg")
 pmtiles extract "$planet_url" "$dist_dir/$iso.pmtiles" \
-  --region="$geojson_path" \
+  --bbox="$bbox" \
   --maxzoom="$maxzoom"
 
 echo "$iso.pmtiles: $(stat -c%s "$dist_dir/$iso.pmtiles" 2>/dev/null || stat -f%z "$dist_dir/$iso.pmtiles") bytes"

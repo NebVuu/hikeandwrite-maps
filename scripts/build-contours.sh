@@ -26,6 +26,9 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 build_dir="$repo_root/build"
 dist_dir="$repo_root/dist"
 contour_interval_m=20
+# Matches build-region.sh's border_pad_deg — same reasoning, applied here so
+# contour lines and the basemap agree on how far past the border to cover.
+border_pad_deg=0.1
 
 iso=$(yq '.iso' "$region_file")
 name=$(yq '.name' "$region_file")
@@ -53,7 +56,7 @@ while IFS= read -r url; do
     fi
   fi
   tile_files+=("$tif")
-done < <(node "$repo_root/scripts/dem-tiles.js" "$geojson_path")
+done < <(node "$repo_root/scripts/dem-tiles.js" "$geojson_path" "$border_pad_deg")
 
 if [ ${#tile_files[@]} -eq 0 ]; then
   echo "No DEM tiles found for $iso" >&2
@@ -64,12 +67,18 @@ echo "Downloaded ${#tile_files[@]} DEM tiles"
 vrt_path="$dem_dir/merged.vrt"
 gdalbuildvrt -overwrite "$vrt_path" "${tile_files[@]}"
 
-# Clip to the country's exact boundary before contouring, same idea as the
-# basemap's own --region clip — otherwise contours would extend into
-# neighboring countries out to the tiles' rectangular edges.
+# Crop to a padded bbox around the country, not its exact boundary — same
+# fix as build-region.sh's basemap extract (19.08.2026: a strict cutline
+# right at the administrative border drops everything past it, even one
+# step past, which hollows out any border-ridge peak or trail — e.g.
+# Maglić, whose summit sits ON the BA/Montenegro line). `-te` here uses the
+# same padded bbox so contour lines don't stop at the border while the
+# basemap keeps going past it.
 clipped_path="$dem_dir/clipped.tif"
-gdalwarp -overwrite -cutline "$geojson_path" -crop_to_cutline -dstnodata -9999 \
-  "$vrt_path" "$clipped_path"
+bbox=$(node "$repo_root/scripts/region-bbox.js" "$geojson_path" "$border_pad_deg")
+IFS=',' read -r bbox_minlon bbox_minlat bbox_maxlon bbox_maxlat <<< "$bbox"
+gdalwarp -overwrite -te "$bbox_minlon" "$bbox_minlat" "$bbox_maxlon" "$bbox_maxlat" \
+  -dstnodata -9999 "$vrt_path" "$clipped_path"
 
 contours_geojson="$dem_dir/contours.geojson"
 gdal_contour -a elev -i "$contour_interval_m" -f GeoJSON "$clipped_path" "$contours_geojson"
