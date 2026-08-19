@@ -37,6 +37,20 @@ jobs:
             scripts/build-region.sh "$region"
           done
 
+      - name: Install GDAL and tippecanoe (contours)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin tippecanoe
+
+      # Trial run, BA only (see TASKS.md, "Hillshade + konture") — contour
+      # lines from Copernicus GLO-30, first time this pipeline has actually
+      # run anywhere. Extend to `regions/*.yml` once the output's been
+      # checked and looks right.
+      - name: Build BA contours (trial)
+        run: |
+          chmod +x scripts/build-contours.sh
+          scripts/build-contours.sh regions/ba.yml
+
       - name: Build manifest
         run: |
           chmod +x scripts/merge-manifest.sh

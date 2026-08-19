@@ -29,6 +29,26 @@ hiking-specific overlays like `sac_scale` trail grading or mountain-hut POIs
 layer docs, only generic `kind_detail: path/cycleway/footway` on the roads
 layer).
 
+## Contours (trial, BA only)
+
+`scripts/build-contours.sh` generates 20m-interval contour lines from
+Copernicus GLO-30 DEM data (the same free source Mapterhorn's hillshade
+already uses outside Switzerland) — `gdalbuildvrt` + `gdalwarp` (clip to the
+region boundary) + `gdal_contour` (extract lines as GeoJSON) + `tippecanoe`
+(build the vector tiles). `scripts/dem-tiles.js` works out which 1°×1°
+Copernicus tiles cover a region's boundary and prints their (verified, public,
+no-credentials-needed) download URLs.
+
+This is a trial — see `.github/workflows/build-maps.yml`'s "Build BA
+contours (trial)" step — run for `regions/ba.yml` only, and **not yet
+verified end-to-end anywhere** (no GDAL/tippecanoe available on the machine
+that wrote this). Check the actual output (`dist/BA_contours.pmtiles`, e.g.
+via the `pmtiles.io` viewer) before trusting it or extending it to other
+regions. Not wired into the app yet either — that's a separate step once the
+tiles themselves look right.
+
+## Adding a region
+
 ## Adding a region
 
 Add a `regions/<iso>.yml`:
@@ -56,6 +76,13 @@ scripts/merge-manifest.sh
 
 Output lands in `dist/` (gitignored) — `<ISO>.pmtiles` per region plus
 `maps.json`.
+
+Contours additionally need `gdalbuildvrt`/`gdalwarp`/`gdal_contour` (GDAL)
+and `tippecanoe` on `PATH`:
+
+```sh
+scripts/build-contours.sh regions/ba.yml
+```
 
 ## Publishing
 

@@ -5,7 +5,9 @@
 // actual file size of its built dist/<ISO>.pmtiles. Hillshade stays a
 // separate, unsolved problem (see TASKS.md, "Hillshade (teren) — NIJE
 // riješeno") — a region only gets a `hillshade` entry if a
-// dist/<ISO>_hillshade.pmtiles file happens to already be there.
+// dist/<ISO>_hillshade.pmtiles file happens to already be there. Same
+// idea for `contours` (dist/<ISO>_contours.pmtiles, see
+// scripts/build-contours.sh) — trial run, not built for every region yet.
 //
 // No YAML dependency: regions/*.yml files are flat `key: value` pairs
 // (see regions/ba.yml), so a line-based parse is enough — pulling in a
@@ -37,6 +39,7 @@ const countries = fs
     );
     const basemapPath = path.join(distDir, `${region.iso}.pmtiles`);
     const hillshadePath = path.join(distDir, `${region.iso}_hillshade.pmtiles`);
+    const contoursPath = path.join(distDir, `${region.iso}_contours.pmtiles`);
     if (!fs.existsSync(basemapPath)) {
       throw new Error(`Missing ${basemapPath} — did build-region.sh run for ${region.iso}?`);
     }
@@ -50,6 +53,9 @@ const countries = fs
       },
       hillshade: fs.existsSync(hillshadePath)
         ? { file: `${region.iso}_hillshade.pmtiles`, size: fs.statSync(hillshadePath).size }
+        : null,
+      contours: fs.existsSync(contoursPath)
+        ? { file: `${region.iso}_contours.pmtiles`, size: fs.statSync(contoursPath).size }
         : null,
     };
   });
