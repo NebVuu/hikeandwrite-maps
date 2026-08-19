@@ -7,13 +7,13 @@
 # this 30m source, unlike raster hillshade shading, which looked blurry on
 # Bosnia's steep, forested terrain regardless of style tuning.
 #
-# UNTESTED as of writing — this machine has no GDAL/tippecanoe (see
-# TASKS.md), so this has only been checked piece by piece: the DEM tile
-# URLs (scripts/dem-tiles.js) were verified against the real bucket, but
-# the gdalwarp/gdal_contour/tippecanoe chain itself has not actually run
-# end-to-end anywhere yet. First real run should be in CI
-# (.github/workflows/build-maps.yml) or on a machine with these tools
-# installed — watch it closely the first time.
+# First real CI run (19.08.2026) worked end-to-end and produced a valid
+# BA_contours.pmtiles (confirmed via pmtiles show against the published
+# release — correct bounds, real tile entries) but at 285MB, roughly the
+# whole basemap's size for a single-attribute line layer. The simplify +
+# per-feature-minzoom tiering + lower maxzoom below are the fix for that;
+# not yet re-verified in CI (this machine still has no GDAL/tippecanoe to
+# test locally) — watch the next run's output size closely.
 #
 # Requires build-region.sh to have already produced this region's
 # boundary GeoJSON (build/boundaries/<ISO>.geojson).
@@ -74,16 +74,35 @@ gdalwarp -overwrite -cutline "$geojson_path" -crop_to_cutline -dstnodata -9999 \
 contours_geojson="$dem_dir/contours.geojson"
 gdal_contour -a elev -i "$contour_interval_m" -f GeoJSON "$clipped_path" "$contours_geojson"
 
-# minzoom 11: contour lines are visual noise zoomed further out than that;
-# maxzoom 15 matches the basemap's own maxzoom (see recorded_track_map.dart,
-# _offlineMapMaxZoom) so neither layer overzooms before the other.
+# Raw gdal_contour output carries a vertex roughly every ~30m (the DEM's
+# own grid spacing) along the entire length of every line — meaningless
+# detail below what a 30m DEM can even represent, but it's still real
+# bytes. ~0.0002 degrees (~20m at this latitude) removes that noise
+# without visibly changing the line at any zoom this pmtiles is actually
+# served at. Confirmed present in this GDAL build (3.8.4 on Ubuntu
+# noble; -simplify landed in GDAL 3.4).
+simplified_geojson="$dem_dir/contours_simplified.geojson"
+ogr2ogr -f GeoJSON -simplify 0.0002 "$simplified_geojson" "$contours_geojson"
+
+# Per-feature minzoom (see contour-tiers.js) — this is the bigger size
+# lever: without it, every 20m line rendered at every zoom, which is most
+# of why the first real build (BA) came out at 285MB, comparable to the
+# whole basemap, for a single-attribute line layer.
+tiered_geojson="$dem_dir/contours_tiered.geojson"
+node "$repo_root/scripts/contour-tiers.js" "$simplified_geojson" > "$tiered_geojson"
+
+# maxzoom 13, not the basemap's 15 (_offlineMapMaxZoom in
+# recorded_track_map.dart) — a 20m interval already exceeds what's useful
+# at basemap-level street zoom, and z13 is still finer than the 30m DEM's
+# real resolution.
 tippecanoe \
   --output="$dist_dir/${iso}_contours.pmtiles" \
   --layer=contours \
   --minimum-zoom=11 \
-  --maximum-zoom=15 \
+  --maximum-zoom=13 \
+  --simplification=10 \
   --drop-densest-as-needed \
   --force \
-  "$contours_geojson"
+  "$tiered_geojson"
 
 echo "${iso}_contours.pmtiles: $(stat -c%s "$dist_dir/${iso}_contours.pmtiles" 2>/dev/null || stat -f%z "$dist_dir/${iso}_contours.pmtiles") bytes"
