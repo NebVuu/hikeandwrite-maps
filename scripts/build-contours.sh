@@ -95,15 +95,29 @@ gdal_contour -a elev -i "$contour_interval_m" -f GeoJSON "$clipped_path" "$conto
 # without visibly changing the line at any zoom this pmtiles is actually
 # served at. Confirmed present in this GDAL build (3.8.4 on Ubuntu
 # noble; -simplify landed in GDAL 3.4).
-simplified_geojson="$dem_dir/contours_simplified.geojson"
-ogr2ogr -f GeoJSON -simplify 0.0002 "$simplified_geojson" "$contours_geojson"
+#
+# Output is GeoJSONSeq (one feature per line), not a single
+# FeatureCollection, so the tiering step below can stream it. See
+# contour-tiers.js: reading a whole FeatureCollection is what broke CI run
+# #8 once the interval halved (ERR_STRING_TOO_LONG — V8 caps strings at
+# ~512MB, so that approach had a hard ceiling no amount of RAM could lift).
+simplified_geojson="$dem_dir/contours_simplified.geojsonl"
+ogr2ogr -f GeoJSONSeq -simplify 0.0002 "$simplified_geojson" "$contours_geojson"
+echo "simplified contours: $(du -h "$simplified_geojson" | cut -f1)"
+# The raw pre-simplify file is the largest thing this script produces and
+# nothing downstream reads it again. A GitHub runner only has ~14GB free
+# and dist/ already holds every region's basemap by the time this runs, so
+# dropping it here is what keeps a fine interval from turning into a
+# disk-space failure instead of a memory one.
+rm -f "$contours_geojson"
 
 # Per-feature minzoom (see contour-tiers.js) — this is the bigger size
-# lever: without it, every 20m line rendered at every zoom, which is most
-# of why the first real build (BA) came out at 285MB, comparable to the
-# whole basemap, for a single-attribute line layer.
-tiered_geojson="$dem_dir/contours_tiered.geojson"
+# lever: without it, every line renders at every zoom, which is most of why
+# the first real build (BA) came out at 285MB, comparable to the whole
+# basemap, for a single-attribute line layer.
+tiered_geojson="$dem_dir/contours_tiered.geojsonl"
 node "$repo_root/scripts/contour-tiers.js" "$simplified_geojson" > "$tiered_geojson"
+echo "tiered contours: $(du -h "$tiered_geojson" | cut -f1)"
 
 # maxzoom 14 matches the basemap's own ceiling (_offlineMapMaxZoom in
 # recorded_track_map.dart), so the deepest zoom a user can reach still has
