@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
-# Builds one country's contour-line vector tiles (20m interval, matching
-# TASKS.md's hiking-app research recommendation) from Copernicus GLO-30 DEM
+# Builds one country's contour-line vector tiles from Copernicus GLO-30 DEM
 # data — the same free source Mapterhorn's hillshade already uses outside
-# Switzerland. Contour LINES were untried until now; the hypothesis (see
-# TASKS.md, "Hillshade + konture") is that they read crisply even from
-# this 30m source, unlike raster hillshade shading, which looked blurry on
-# Bosnia's steep, forested terrain regardless of style tuning.
+# Switzerland. Contours carry most of the terrain-reading job in the app's
+# style, since raster hillshade looked blurry on Bosnia's steep, forested
+# terrain regardless of style tuning (see TASKS.md, "Hillshade + konture").
 #
 # First real CI run (19.08.2026) worked end-to-end and produced a valid
 # BA_contours.pmtiles (confirmed via pmtiles show against the published
 # release — correct bounds, real tile entries) but at 285MB, roughly the
 # whole basemap's size for a single-attribute line layer. The simplify +
-# per-feature-minzoom tiering + lower maxzoom below are the fix for that;
-# not yet re-verified in CI (this machine still has no GDAL/tippecanoe to
-# test locally) — watch the next run's output size closely.
+# per-feature-minzoom tiering below cut that to 2.6MB.
+#
+# 20.08.2026: interval 20m -> 10m and maxzoom 13 -> 14, after on-device
+# testing showed contours reading as too sparse to give the dense,
+# terrain-following look a paper topo map has. NOTE the honest tradeoff: a
+# 10m interval on a 30m-resolution DEM is finer than the source can
+# strictly justify, so individual lines carry some interpolation wobble —
+# the `-simplify` pass below is what keeps that from looking noisy. Also
+# dropped `--drop-densest-as-needed` (see the tippecanoe call) which was
+# silently deleting lines exactly on steep terrain.
 #
 # Requires build-region.sh to have already produced this region's
 # boundary GeoJSON (build/boundaries/<ISO>.geojson).
@@ -25,7 +30,7 @@ region_file=$1
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 build_dir="$repo_root/build"
 dist_dir="$repo_root/dist"
-contour_interval_m=20
+contour_interval_m=10
 # Matches build-region.sh's border_pad_deg — same reasoning, applied here so
 # contour lines and the basemap agree on how far past the border to cover.
 border_pad_deg=0.1
@@ -100,17 +105,29 @@ ogr2ogr -f GeoJSON -simplify 0.0002 "$simplified_geojson" "$contours_geojson"
 tiered_geojson="$dem_dir/contours_tiered.geojson"
 node "$repo_root/scripts/contour-tiers.js" "$simplified_geojson" > "$tiered_geojson"
 
-# maxzoom 13, not the basemap's 15 (_offlineMapMaxZoom in
-# recorded_track_map.dart) — a 20m interval already exceeds what's useful
-# at basemap-level street zoom, and z13 is still finer than the 30m DEM's
-# real resolution.
+# maxzoom 14 matches the basemap's own ceiling (_offlineMapMaxZoom in
+# recorded_track_map.dart), so the deepest zoom a user can reach still has
+# real contour tiles rather than an overzoomed z13 stretch.
+#
+# `-pf`/`-pk` (--no-feature-limit / --no-tile-size-limit) replace the
+# previous `--drop-densest-as-needed`, which is the likeliest reason
+# contours read as missing on-device (20.08.2026): that flag drops features
+# from tiles that exceed tippecanoe's default limits, and contour tiles are
+# densest exactly on steep mountain terrain — i.e. it was deleting lines
+# precisely where a hiker needs them, while leaving flat areas intact. The
+# per-feature minzoom tiering above (contour-tiers.js) is the right lever
+# for size instead, since it thins by elevation significance rather than by
+# whichever tile happens to be busiest. Watch the output size below: this
+# removes tippecanoe's own safety valve, so if a region ever comes out
+# unreasonably large, tighten the tiering rather than restoring the drop.
 tippecanoe \
   --output="$dist_dir/${iso}_contours.pmtiles" \
   --layer=contours \
   --minimum-zoom=11 \
-  --maximum-zoom=13 \
+  --maximum-zoom=14 \
   --simplification=10 \
-  --drop-densest-as-needed \
+  --no-feature-limit \
+  --no-tile-size-limit \
   --force \
   "$tiered_geojson"
 
