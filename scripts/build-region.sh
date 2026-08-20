@@ -68,8 +68,17 @@ fi
 # separate `pmtiles convert` step needed) — same drop-in format the app's
 # `CountryMapDownloader` already expects.
 bbox=$(node "$repo_root/scripts/region-bbox.js" "$geojson_path" "$border_pad_deg")
+# --compress=gzip: `versatiles convert` defaults to brotli tile
+# compression — confirmed 20.08.2026 by reading the pmtiles v3 header
+# directly (tile_compression byte 3, vs. gzip's 2 on the old, working
+# Protomaps-era BA.pmtiles) after the app rendered zero vector features
+# with this schema pivot's first real build. The app's pmtiles/MapLibre
+# vector-tile loading path only ever handled gzip before now, so forcing
+# it here matches the one format already proven to work end-to-end,
+# rather than trusting brotli support that hasn't been verified anywhere.
 versatiles convert "$planet_url" "$dist_dir/$iso.pmtiles" \
   --bbox="$bbox" \
-  --max-zoom="$maxzoom"
+  --max-zoom="$maxzoom" \
+  --compress=gzip
 
 echo "$iso.pmtiles: $(stat -c%s "$dist_dir/$iso.pmtiles" 2>/dev/null || stat -f%z "$dist_dir/$iso.pmtiles") bytes"
