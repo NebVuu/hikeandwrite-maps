@@ -7,27 +7,45 @@ repo).
 ## Pipeline
 
 Each region is extracted directly from
-[Protomaps' public, weekly-updated planet-wide PMTiles build](https://docs.protomaps.com/basemaps/downloads)
-(`build.protomaps.com/<date>.pmtiles`, maxzoom 15) — not built from scratch.
-`pmtiles extract` reads the source over HTTP range requests, so this never
-downloads the full ~120GB planet file, only the tiles inside the requested
-region's boundary.
+[VersaTiles' public planet-wide Shortbread build](https://docs.versatiles.org/guides/download_tiles.html)
+(`download.versatiles.org/osm.versatiles`, maxzoom 14) — not built from
+scratch. `versatiles convert` reads the source over HTTP byte-range
+requests (confirmed in versatiles-rs' own source, not just docs), so this
+never downloads the full ~60GB+ planet file, only the tiles inside the
+requested region's bbox.
 
-This replaced an earlier approach (see `TASKS.md` in the HikeAndWrite repo,
-"Offline mape") that merged neighboring countries' Geofabrik `.osm.pbf`
-extracts and ran Planetiler locally, to work around Geofabrik's per-country
-cuts leaving border multipolygons (lakes, rivers) incomplete. Extracting
-from a planet-wide source has no per-country cut to begin with, so that bug
-class can't happen here — and it's far cheaper per region, since there's no
-shared cluster build cost that grows with the number of neighboring
-countries.
+19.08.2026: pivoted from Protomaps' basemap schema
+(`build.protomaps.com`, maxzoom 15) to VersaTiles Shortbread — see
+`TASKS.md` in the HikeAndWrite repo, "Offline mape" — for a minimal
+outdoor-map look (forest/meadow/water/discreet roads) instead of a generic
+city map. The "extract from an uncut planet-wide source" principle carries
+over unchanged from the Protomaps era: this originally replaced merging
+neighboring countries' Geofabrik `.osm.pbf` extracts and running Planetiler
+locally, to work around Geofabrik's per-country cuts leaving border
+multipolygons (lakes, rivers) incomplete. Extracting from a planet-wide
+source has no per-country cut to begin with, so that bug class can't happen
+here regardless of which planet-wide source is used.
 
-**Not covered by this pipeline:** hillshade/terrain relief (still an open,
-separate problem — see `TASKS.md`, "Hillshade (teren) — NIJE riješeno") and
-hiking-specific overlays like `sac_scale` trail grading or mountain-hut POIs
-(Protomaps' basemap schema doesn't carry these — confirmed from its own
-layer docs, only generic `kind_detail: path/cycleway/footway` on the roads
-layer).
+**Not covered by this pipeline:** hiking-specific overlays like `sac_scale`
+trail grading or mountain-hut POIs — Shortbread's basemap schema doesn't
+carry these either (same limitation Protomaps had), only generic road
+`kind`s on its `streets` layer. Hillshade/terrain relief and contours are
+separate, own pipelines — see below.
+
+## Hillshade (trial, BA only)
+
+`scripts/build-hillshade.sh` is a plain `pmtiles extract --bbox=...` against
+Mapterhorn's public planet-wide Terrarium-encoded PMTiles archive
+(`download.mapterhorn.com/planet.pmtiles`, Copernicus GLO-30, real data up
+to z12 outside Switzerland) — same HTTP-range-request pattern as
+`build-region.sh`'s basemap step, just a different source. No DEM
+download, no GDAL, no separate raster bake/convert step: the extract is
+already the finished, Terrarium-encoded output `hiking_map_style.dart`'s
+`hillshade-dem` source expects.
+
+Trial, BA only for now (see `.github/workflows/build-maps.yml`'s "Build BA
+hillshade (trial)" step) — extend to `regions/*.yml` once the output's been
+checked and looks right.
 
 ## Contours (trial, BA only)
 
@@ -49,33 +67,33 @@ tiles themselves look right.
 
 ## Adding a region
 
-## Adding a region
-
 Add a `regions/<iso>.yml`:
 
 ```yaml
 iso: BA
 name: Bosna i Hercegovina
 geofabrik_poly_url: https://download.geofabrik.de/europe/bosnia-herzegovina.poly
-maxzoom: 15
+maxzoom: 14
 ```
 
 `geofabrik_poly_url` only needs to point at a boundary outline (Geofabrik's
 `.poly` files are convenient because one already exists per country/region)
-— `scripts/poly2geojson.js` converts it to the GeoJSON `pmtiles extract`
+— `scripts/poly2geojson.js` converts it to the GeoJSON `versatiles convert`
 needs. The workflow picks up every file in `regions/` automatically.
 
 ## Running locally
 
-Requires `pmtiles` (go-pmtiles CLI), `yq`, and Node on `PATH`.
+Requires `versatiles` (versatiles-rs CLI), `pmtiles` (go-pmtiles CLI, used by
+the hillshade step's Mapterhorn extract), `yq`, and Node on `PATH`.
 
 ```sh
 scripts/build-region.sh regions/ba.yml
+scripts/build-hillshade.sh regions/ba.yml
 scripts/merge-manifest.sh
 ```
 
-Output lands in `dist/` (gitignored) — `<ISO>.pmtiles` per region plus
-`maps.json`.
+Output lands in `dist/` (gitignored) — `<ISO>.pmtiles`/`<ISO>_hillshade.pmtiles`
+per region plus `maps.json`.
 
 Contours additionally need `gdalbuildvrt`/`gdalwarp`/`gdal_contour` (GDAL)
 and `tippecanoe` on `PATH`:

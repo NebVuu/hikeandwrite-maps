@@ -3,8 +3,10 @@ name: Build maps
 on:
   workflow_dispatch: {}
   schedule:
-    # Weekly, matching the Protomaps planet build's own retention window
-    # (roughly the past 7 days of daily builds).
+    # Weekly — VersaTiles' `osm.versatiles` alias always resolves to its
+    # current planet build (no dated-retention window to match, unlike the
+    # Protomaps-era pipeline this replaced), so this just keeps our
+    # extracts reasonably fresh against upstream OSM data.
     - cron: '0 3 * * 1'
 
 jobs:
@@ -20,10 +22,24 @@ jobs:
           node-version: '20'
 
       - name: Install pmtiles CLI
+        # Still needed even after the versatiles-convert basemap pivot below
+        # — build-hillshade.sh's `pmtiles convert` step (mbtiles → pmtiles)
+        # is unrelated to which tool builds the basemap.
         run: |
           curl -sL https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz \
             | tar xz pmtiles
           sudo mv pmtiles /usr/local/bin/pmtiles
+
+      - name: Install versatiles CLI
+        # Basemap schema pivot (19.08.2026, see TASKS.md "Offline mape"):
+        # Protomaps → VersaTiles Shortbread. `--version` is a smoke test —
+        # this asset's exact contents were verified from GitHub's release
+        # page, not by actually running the binary anywhere yet.
+        run: |
+          curl -sL https://github.com/versatiles-org/versatiles-rs/releases/download/v4.8.0/versatiles-linux-gnu-x86_64.tar.gz \
+            | tar xz versatiles
+          sudo mv versatiles /usr/local/bin/versatiles
+          versatiles --version
 
       - name: Install yq
         run: |
@@ -36,6 +52,18 @@ jobs:
           for region in regions/*.yml; do
             scripts/build-region.sh "$region"
           done
+
+      # Trial run, BA only, same discipline as contours below (see
+      # TASKS.md, "Hillshade + konture") — maps-v2 has never had a
+      # hillshade file at all until this step. Just a `pmtiles extract`
+      # against Mapterhorn's own hosted planet archive (see
+      # build-hillshade.sh) — no GDAL/tippecanoe dependency, so this runs
+      # right after the basemap step rather than waiting on the
+      # GDAL/tippecanoe install below, which contours alone needs.
+      - name: Build BA hillshade (trial)
+        run: |
+          chmod +x scripts/build-hillshade.sh
+          scripts/build-hillshade.sh regions/ba.yml
 
       - name: Install GDAL and tippecanoe (contours)
         # DEBIAN_FRONTEND/NEEDRESTART_MODE: apt-get install on Ubuntu can
@@ -72,7 +100,7 @@ jobs:
           gh release view maps-v2 >/dev/null 2>&1 \
             || gh release create maps-v2 \
                  --title "Offline maps v2" \
-                 --notes "Basemap extracts from the Protomaps public planet build (build.protomaps.com). See TASKS.md in the HikeAndWrite repo for the pipeline decision."
+                 --notes "Basemap extracts from VersaTiles' public Shortbread planet build (download.versatiles.org). See TASKS.md in the HikeAndWrite repo for the pipeline decision."
           for f in dist/*.pmtiles dist/maps.json; do
             gh release upload maps-v2 "$f" --clobber
           done

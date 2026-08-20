@@ -2,12 +2,12 @@
 'use strict';
 
 // Builds dist/maps.json — one entry per region in regions/*.yml, with the
-// actual file size of its built dist/<ISO>.pmtiles. Hillshade stays a
-// separate, unsolved problem (see TASKS.md, "Hillshade (teren) — NIJE
-// riješeno") — a region only gets a `hillshade` entry if a
-// dist/<ISO>_hillshade.pmtiles file happens to already be there. Same
-// idea for `contours` (dist/<ISO>_contours.pmtiles, see
-// scripts/build-contours.sh) — trial run, not built for every region yet.
+// actual file size of its built dist/<ISO>.pmtiles. `hillshade` and
+// `contours` are both trial runs, BA-only for now (see
+// scripts/build-hillshade.sh, scripts/build-contours.sh) — a region only
+// gets those entries if the corresponding dist/<ISO>_*.pmtiles file
+// happens to already be there, so this needs no change as each rolls out
+// to the rest of regions/*.yml.
 //
 // No YAML dependency: regions/*.yml files are flat `key: value` pairs
 // (see regions/ba.yml), so a line-based parse is enough — pulling in a
@@ -62,7 +62,7 @@ const countries = fs
 
 const manifest = {
   generated_at: new Date().toISOString(),
-  source: 'https://build.protomaps.com (Protomaps public planet build)',
+  source: 'https://download.versatiles.org (VersaTiles Shortbread planet build)',
   countries,
 };
 

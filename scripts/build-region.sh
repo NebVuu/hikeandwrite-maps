@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 # Builds one country's offline basemap by extracting it directly from
-# Protomaps' public, weekly-updated planet-wide PMTiles build — see
-# HikeAndWrite's TASKS.md ("Offline mape") for why this replaced an earlier
-# osmconvert-merge+Planetiler pipeline: extracting from a planet-wide
-# source has no per-country OSM cut to begin with, so it can't reproduce
-# the border multipolygon bug (#29) that pipeline existed to work around.
+# VersaTiles' public planet-wide Shortbread build — see HikeAndWrite's
+# TASKS.md ("Offline mape") for the 19.08.2026 schema pivot: Shortbread
+# replaces Protomaps' basemap schema for a minimal outdoor look (forest/
+# meadow/water/discreet roads instead of a generic city map). Same
+# "extract from an uncut planet-wide source" principle as the Protomaps-era
+# pipeline this replaces — no per-country OSM cut to begin with, so it
+# can't reproduce the border multipolygon bug (#29) that motivated that
+# principle in the first place. `versatiles convert` reads its remote input
+# over HTTP byte-range requests the same way `pmtiles extract` did
+# (confirmed in versatiles-rs' own `DataReaderHttp`/`convert.rs` source,
+# not just docs) — this still never downloads VersaTiles' ~60GB+ planet
+# file, only the tiles inside the requested bbox.
 #
 # Usage: scripts/build-region.sh regions/ba.yml
 set -euo pipefail
@@ -20,6 +27,11 @@ poly_url=$(yq '.geofabrik_poly_url' "$region_file")
 maxzoom=$(yq '.maxzoom' "$region_file")
 # ~8-11km at these latitudes — matched by build-contours.sh so a country's
 # basemap and contour extracts cover the same ground near its border.
+# Kept as a plain bbox pad (not `versatiles convert`'s own `--bbox-border`
+# tile-count option) specifically so this stays the exact same,
+# already-verified-against-Maglić padding the Protomaps-era pipeline used —
+# switching to a tile-count border would mean re-deriving and re-verifying
+# an equivalent margin instead of reusing a proven one.
 border_pad_deg=0.1
 
 mkdir -p "$build_dir/boundaries" "$dist_dir"
@@ -31,37 +43,33 @@ geojson_path="$build_dir/boundaries/$iso.geojson"
 curl -sf "$poly_url" -o "$poly_path"
 node "$repo_root/scripts/poly2geojson.js" "$poly_path" > "$geojson_path"
 
-# The planet build is dated (e.g. build.protomaps.com/20260818.pmtiles) and
-# has no stable "latest" alias — retention is roughly the past week, so try
-# today first and step backward a few days until one actually exists
-# (verified 19.08.2026: today's and yesterday's date both resolved, three
-# days back already 404'd).
-planet_url=""
-for days_back in 0 1 2 3 4 5 6; do
-  candidate_date=$(date -u -d "-$days_back day" +%Y%m%d 2>/dev/null || date -u -v-"${days_back}"d +%Y%m%d)
-  candidate_url="https://build.protomaps.com/$candidate_date.pmtiles"
-  if curl -sfI "$candidate_url" >/dev/null; then
-    planet_url=$candidate_url
-    echo "Using planet build: $candidate_date"
-    break
-  fi
-done
-if [ -z "$planet_url" ]; then
-  echo "No planet build found in the last 7 days at build.protomaps.com" >&2
+# Unlike Protomaps' build.protomaps.com (dated files only, no stable
+# alias, forcing the old version of this script to probe backward through
+# the past week), VersaTiles publishes a standing `osm.versatiles` alias
+# that always resolves to its current planet-wide Shortbread build
+# (confirmed 19.08.2026 at download.versatiles.org — size matches the
+# latest dated `osm.<YYYYMMDD>.versatiles` file). A dated file remains the
+# fallback if this alias is ever retired.
+planet_url="https://download.versatiles.org/osm.versatiles"
+if ! curl -sfI "$planet_url" >/dev/null; then
+  echo "VersaTiles planet build not reachable at $planet_url" >&2
   exit 1
 fi
 
-# A strict --region=<geojson> cutline drops every tile past the
-# administrative border, even one step past it — confirmed 19.08.2026 by
-# diffing our extract's tiles against the raw planet build around Maglić
-# (whose summit sits ON the BA/Montenegro line): geometry was byte-identical
-# wherever both had data, but a whole diagonal block of tiles just past the
-# border was simply missing from ours, matching that border's real angle.
-# Padding the bbox outward keeps neighboring-country tiles along the border
-# available, so a border-ridge trail's far side isn't a hole in the map.
+# A strict polygon cutline drops every tile past the administrative
+# border, even one step past it — confirmed 19.08.2026 (Protomaps-era
+# pipeline) by diffing an extract's tiles against the raw planet build
+# around Maglić (whose summit sits ON the BA/Montenegro line): a whole
+# diagonal block of tiles just past the border was simply missing,
+# matching that border's real angle. Padding the bbox outward keeps
+# neighboring-country tiles along the border available, so a border-ridge
+# trail's far side isn't a hole in the map. `versatiles convert` outputs
+# `.pmtiles` directly when the output filename ends in `.pmtiles` (no
+# separate `pmtiles convert` step needed) — same drop-in format the app's
+# `CountryMapDownloader` already expects.
 bbox=$(node "$repo_root/scripts/region-bbox.js" "$geojson_path" "$border_pad_deg")
-pmtiles extract "$planet_url" "$dist_dir/$iso.pmtiles" \
+versatiles convert "$planet_url" "$dist_dir/$iso.pmtiles" \
   --bbox="$bbox" \
-  --maxzoom="$maxzoom"
+  --max-zoom="$maxzoom"
 
 echo "$iso.pmtiles: $(stat -c%s "$dist_dir/$iso.pmtiles" 2>/dev/null || stat -f%z "$dist_dir/$iso.pmtiles") bytes"
