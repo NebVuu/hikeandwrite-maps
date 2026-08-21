@@ -7,13 +7,17 @@
 # once, ever, the first time any country is added (see HikeAndWrite's
 # `offline-maps-rearchitecture` decision, 21.08.2026).
 #
-# maxzoom 11, not the old per-country 12: Mapterhorn's real Copernicus
-# GLO-30 data is ~30m resolution outside Switzerland, which z12 already
-# exceeds (confirmed during the earlier on-device hillshade investigation —
-# `hiking_map_style.dart` used to fade its exaggeration to near-zero above
-# z12 specifically because overzoomed z12 tiles read as a blurry, colorless
-# blob). Capping one zoom level lower loses no real detail while cutting
-# tile count roughly 4x at the deepest, dominant zoom level of the pyramid.
+# maxzoom 10, not the original per-country 12 (or the 21.08.2026 first
+# regional pass at 11): the whole-region archive at z11 measured 850MB —
+# confirmed too slow/heavy on a real device (multi-minute download,
+# FileSystemException from an interrupted stream) — and go-pmtiles'
+# --dry-run against Mapterhorn's own source measured the actual tradeoff
+# directly rather than guessing: z12=2.1GB, z11=850MB, z10=308MB, z9=107MB.
+# z10 trades real visible softness at close hiking zoom (12-16, where this
+# overzooms more than z11 did) for a ~2.75x smaller one-time download —
+# accepted since contours (10m interval) carry the primary terrain-reading
+# detail in the app's style; hillshade is explicitly a soft base under them,
+# not the main event.
 #
 # Requires build-region.sh to have already produced EVERY region's boundary
 # GeoJSON (build/boundaries/<ISO>.geojson) — this unions all of them into
@@ -27,7 +31,7 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 build_dir="$repo_root/build"
 dist_dir="$repo_root/dist"
-hillshade_maxzoom=11
+hillshade_maxzoom=10
 # Wider than the per-region 0.1 (build-region.sh/build-contours.sh) since
 # this only needs to avoid a visible edge at the outermost supported
 # countries' own borders, not agree tile-for-tile with any one country's

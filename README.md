@@ -54,12 +54,16 @@ is already the finished, Terrarium-encoded output `hiking_map_style.dart`'s
 
 21.08.2026: switched from a per-country extract (`<ISO>_hillshade.pmtiles`,
 ~300MB each) to **one** file (`dist/hillshade.pmtiles`) covering the union
-bbox of every `regions/*.yml` entry, capped at maxzoom 11 instead of 12 —
-Mapterhorn's real data is ~30m resolution, which z12 already exceeds, so
-the lower cap loses no real detail while cutting the file's size
-substantially. The app downloads this once, ever, regardless of how many
-countries get added (see `offline-maps-rearchitecture` in the HikeAndWrite
-repo).
+bbox of every `regions/*.yml` entry. First published at maxzoom 11
+(measured 850MB) — confirmed too slow/heavy on a real device (multi-minute
+download, an interrupted-stream error), so dropped to maxzoom 10 (measured
+~308MB via `go-pmtiles extract --dry-run` against Mapterhorn directly:
+z12=2.1GB, z11=850MB, z10=308MB, z9=107MB). z10 is visibly softer at close
+hiking zoom than z11 was — accepted since contours (10m interval) carry
+the app's real terrain-reading detail; hillshade is a soft base under them,
+not the main event. The app downloads this file once, ever, regardless of
+how many countries get added (see `offline-maps-rearchitecture` in the
+HikeAndWrite repo).
 
 ## Contours (all regions, merged into the basemap)
 
