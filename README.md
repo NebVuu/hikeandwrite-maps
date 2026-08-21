@@ -14,6 +14,27 @@ source over HTTP byte-range requests (confirmed in versatiles-rs' own
 source, not just docs), so this never downloads the full ~60GB+ planet
 file, only the tiles inside the requested region's bbox.
 
+`versatiles convert` can only cut a rectangle, and a country's rectangle is
+much bigger than the country — measured padded-bbox area against boundary
+area: BA 2.06x, RS 2.06x, SI 2.36x, ME 2.53x, HR 2.55x. Croatia is a
+crescent, so its bbox contained the whole of Bosnia and Herzegovina plus
+slices of five other countries; `HR.pmtiles` was 750 MiB against BA's 254 MiB
+while covering a *smaller* country, and anyone downloading both paid for
+Bosnia twice. So a second pass (`pmtiles extract --region`) clips the local
+file down to a tile-aligned mask of the boundary itself — see
+`scripts/region-mask.js` for why tile squares rather than the polygon, and
+for the measured border pad it preserves. Resulting mask area against
+boundary area: BA 1.36x, HR 1.35x, ME 1.63x, RS 1.32x, SI 1.61x.
+
+`scripts/merge-basemap-contours.sh` then drops every Shortbread layer the app
+can't draw. `versatiles convert` copies whole tiles and has no layer filter,
+so `addresses` (every house number in the country, z14), `buildings` (every
+footprint, z14), `pois`, `sites`, `public_transport`, `street_polygons`,
+`bridges`, `ferries` and the dam/pier layers were all being downloaded and
+never rendered. That script carries the allowlist of what survives, and the
+`tile-join` pass doing the filtering was already running for the contour
+merge, so it costs no extra step.
+
 21.08.2026: tried raising `maxzoom` from 14 to 16 for more trail/POI
 detail, then reverted — confirmed via the published `maps-v3` files' own
 PMTiles headers (`min_zoom`/`max_zoom` bytes) that every region still came
@@ -53,27 +74,45 @@ is already the finished, Terrarium-encoded output `hiking_map_style.dart`'s
 `hillshade-dem` source expects.
 
 21.08.2026: switched from a per-country extract (`<ISO>_hillshade.pmtiles`,
-~300MB each) to **one** file (`dist/hillshade.pmtiles`) covering the union
-bbox of every `regions/*.yml` entry. First published at maxzoom 11
-(measured 850MB) — confirmed too slow/heavy on a real device (multi-minute
-download, an interrupted-stream error), so dropped to maxzoom 10 (measured
-~308MB via `go-pmtiles extract --dry-run` against Mapterhorn directly:
-z12=2.1GB, z11=850MB, z10=308MB, z9=107MB). z10 is visibly softer at close
-hiking zoom than z11 was — accepted since contours (10m interval) carry
-the app's real terrain-reading detail; hillshade is a soft base under them,
-not the main event. The app downloads this file once, ever, regardless of
-how many countries get added (see `offline-maps-rearchitecture` in the
-HikeAndWrite repo).
+~300MB each) to **one** file (`dist/hillshade.pmtiles`) covering every
+`regions/*.yml` entry. First published at maxzoom 11 (measured 850MB) —
+confirmed too slow/heavy on a real device (multi-minute download, an
+interrupted-stream error), so dropped to maxzoom 10 (measured ~308MB via
+`go-pmtiles extract --dry-run` against Mapterhorn directly: z12=2.1GB,
+z11=850MB, z10=308MB, z9=107MB). z10 is visibly softer at close hiking zoom
+than z11 was — accepted since contours (10m interval) carry the app's real
+terrain-reading detail; hillshade is a soft base under them, not the main
+event. The app downloads this file once, ever, regardless of how many
+countries get added (see `offline-maps-rearchitecture` in the HikeAndWrite
+repo).
+
+Those numbers were measured against a single union **bbox**, which turned out
+to be half waste: 547,607 km² covered against 275,707 km² of actual boundary
+area, i.e. roughly every second byte was Adriatic or foreign territory. It now
+extracts against the same tile-aligned mask the basemaps use
+(`scripts/region-mask.js`, unioned over all five regions), covering
+328,425 km² — 60% of that bbox for the same real coverage. **The zoom choice
+is therefore open again:** re-run `pmtiles extract --dry-run` against the mask
+before assuming z10 is still the right ceiling, since z11 may now cost about
+what unclipped z10 did.
 
 ## Contours (all regions, merged into the basemap)
 
 `scripts/build-contours.sh` generates 10m-interval contour lines from
 Copernicus GLO-30 DEM data (the same free source Mapterhorn's hillshade
 already uses outside Switzerland) — `gdalbuildvrt` + `gdalwarp` (clip to the
-region boundary) + `gdal_contour` (extract lines as GeoJSON) + `tippecanoe`
+region's tile mask) + `gdal_contour` (extract lines as GeoJSON) + `tippecanoe`
 (build the vector tiles). `scripts/dem-tiles.js` works out which 1°×1°
 Copernicus tiles cover a region's boundary and prints their (verified, public,
 no-credentials-needed) download URLs.
+
+The `gdalwarp -cutline` against `scripts/region-mask.js`' output matters more
+here than anywhere else in the pipeline: "Build contours" is by far its
+slowest step (64 min for five regions on a single runner), and every hectare
+the cutline removes is contour lines never generated, simplified, tiered or
+tiled. The 19.08.2026 objection to a cutline was about cutting on the
+administrative border itself — this mask is already padded ~10.4 km past it,
+so the Maglić fix stands.
 
 Extended 21.08.2026 from the original BA-only trial (19.08.2026) to every
 region in `regions/*.yml`, and no longer published as its own
@@ -104,43 +143,57 @@ needs. The workflow picks up every file in `regions/` automatically.
 above. `scripts/validate-maxzoom.sh` (see "Publishing" below) fails the
 build if a region's published file doesn't actually reach it.
 
-## Running locally
+## Publishing
 
-Requires `versatiles` (versatiles-rs CLI), `pmtiles` (go-pmtiles CLI, used by
-the hillshade step's Mapterhorn extract), `yq`, and Node on `PATH`.
+`.github/workflows/build-maps.yml` runs weekly (and on manual dispatch) as
+three jobs: `discover` turns `regions/*.yml` into a matrix, `region` builds
+one country per runner (basemap → contours → merge/filter → validate
+`max_zoom`) and uploads it as an artifact, and `publish` collects those
+artifacts, builds the one shared hillshade from every region's boundary, writes
+the manifest and uploads the release.
 
-```sh
-for region in regions/*.yml; do scripts/build-region.sh "$region"; done
-scripts/build-hillshade-regional.sh regions/*.yml
-scripts/merge-manifest.sh
-```
+It used to be a single job looping over the regions serially. Two measured
+reasons it isn't: the first full run took ~1h15m with the contour step alone
+accounting for 64 min, and one runner has only ~14GB free — which the
+basemaps plus a region's intermediate DEM and GeoJSON already strain
+(`build-contours.sh` deletes its largest intermediate mid-run for exactly
+that reason). Per-region runners give each region its own disk and cut
+wall-clock to roughly the slowest single region.
 
-Output lands in `dist/` (gitignored) — `<ISO>.pmtiles` per region plus one
-shared `hillshade.pmtiles` and `maps.json`.
+`scripts/validate-maxzoom.sh` runs per region, before its artifact upload, so
+a build silently capped below what `regions/<iso>.yml` asked for blocks
+publishing rather than getting recorded in the manifest — see the 21.08.2026
+note above for the incident it exists to catch.
 
-Contours additionally need `gdalbuildvrt`/`gdalwarp`/`gdal_contour` (GDAL)
-and `tippecanoe` (which also provides `tile-join`) on `PATH`, and must run
-before the manifest step so each region's `<ISO>.pmtiles` already has its
-contours merged in when `merge-manifest.js` reads its size:
+Assets go to the `maps-v4` GitHub Release, overwriting that release's assets
+each run (`gh release upload --clobber`) rather than creating a new dated
+release each time — the app always points at the same release tag. v4 rather
+than v3 because every file's *contents* changed (clipped to a boundary mask,
+unused layers dropped) even though the file *layout* didn't, so clients must
+re-download; the app has a `mapFormatVersion` migration for exactly this.
+`maps-v3` stays published, untouched, until an app build using `maps-v4` has
+actually shipped, and `maps-v2` (the older per-country 3-file layout:
+separate basemap/hillshade/contours) stays published too — the base URL is a
+build-time `--dart-define`, so there's no way for one app binary to handle
+more than one layout, and a client pointed at a tag that no longer exists has
+no fallback.
+
+## Local run order
+
+Requires `versatiles`, `pmtiles`, `yq`, `node`, GDAL (`gdalbuildvrt`,
+`gdalwarp`, `gdal_contour`, `ogr2ogr`) and `tippecanoe` (which also provides
+`tile-join`) on `PATH`. Per region, in this order — each step depends on the
+previous one's output:
 
 ```sh
 for region in regions/*.yml; do
-  scripts/build-contours.sh "$region"
-  scripts/merge-basemap-contours.sh "$region"
+  scripts/build-region.sh "$region"            # basemap + boundary + tile mask
+  scripts/build-contours.sh "$region"          # needs the boundary and the mask
+  scripts/merge-basemap-contours.sh "$region"  # merge + drop unused layers
 done
+scripts/build-hillshade-regional.sh regions/*.yml   # needs every boundary
+scripts/merge-manifest.sh                           # needs every final file
 ```
 
-## Publishing
-
-`.github/workflows/build-maps.yml` runs weekly (and on manual dispatch),
-builds every region, validates each one's actual `max_zoom` against its
-`regions/<iso>.yml` (`scripts/validate-maxzoom.sh` — see the 21.08.2026
-note above for the incident this catches automatically instead of via a
-manual header inspection after publish), then publishes the results to
-the `maps-v3` GitHub Release, overwriting that release's assets each run
-(`gh release upload --clobber`) rather than creating a new dated release
-each time — the app always points at the same release tag. `maps-v2` (the
-old per-country 3-file layout: separate basemap/hillshade/contours) stays
-published, untouched, until an app build using `maps-v3` has actually
-shipped — the base URL is a build-time `--dart-define`, so there's no way
-for one app binary to handle both layouts.
+Output lands in `dist/` (gitignored): `<ISO>.pmtiles` per region, one shared
+`hillshade.pmtiles`, and `maps.json`.

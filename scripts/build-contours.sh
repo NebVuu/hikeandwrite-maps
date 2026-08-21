@@ -82,7 +82,23 @@ gdalbuildvrt -overwrite "$vrt_path" "${tile_files[@]}"
 clipped_path="$dem_dir/clipped.tif"
 bbox=$(node "$repo_root/scripts/region-bbox.js" "$geojson_path" "$border_pad_deg")
 IFS=',' read -r bbox_minlon bbox_minlat bbox_maxlon bbox_maxlat <<< "$bbox"
+# `-cutline` against the same tile-aligned mask the basemap extract uses
+# (build-region.sh, scripts/region-mask.js) on top of the padded `-te` extent.
+# The 19.08.2026 objection to a cutline was about cutting on the
+# administrative border itself; this mask is already padded ~10.4 km past it,
+# so it keeps the Maglić fix while dropping the 35-50% of the rectangle that
+# isn't this country. That matters here more than anywhere: "Build contours"
+# is the pipeline's slowest step by far (64 min for five regions), and every
+# hectare cut here is contour lines never generated, simplified, tiered or
+# tiled. If `-cutline` ever silently no-ops, the failure mode is simply
+# today's behaviour plus the tile-level clip below.
+mask_path="$build_dir/masks/$iso.geojson"
+if [ ! -f "$mask_path" ]; then
+  echo "Missing $mask_path — run scripts/build-region.sh $region_file first" >&2
+  exit 1
+fi
 gdalwarp -overwrite -te "$bbox_minlon" "$bbox_minlat" "$bbox_maxlon" "$bbox_maxlat" \
+  -cutline "$mask_path" \
   -dstnodata -9999 "$vrt_path" "$clipped_path"
 
 contours_geojson="$dem_dir/contours.geojson"
@@ -144,5 +160,21 @@ tippecanoe \
   --no-tile-size-limit \
   --force \
   "$tiered_geojson"
+
+# The cutline above already keeps contour *lines* inside the mask, but
+# tippecanoe still writes whichever tiles those lines touch, so the tileset's
+# own bounds can reach a little past it. Clipping the tiles too keeps this
+# tileset's footprint identical to the basemap's, which matters because
+# tile-join unions its inputs' bounds and the app reads the merged archive's
+# header to place `cameraTargetBounds` and the `coverage-mask` layer.
+contours_clipped="$dist_dir/${iso}_contours_clipped.pmtiles"
+if ! pmtiles extract "$dist_dir/${iso}_contours.pmtiles" "$contours_clipped" \
+  --region="$mask_path"; then
+  echo "  extract failed — clustering the archive and retrying"
+  pmtiles cluster "$dist_dir/${iso}_contours.pmtiles"
+  pmtiles extract "$dist_dir/${iso}_contours.pmtiles" "$contours_clipped" \
+    --region="$mask_path"
+fi
+mv "$contours_clipped" "$dist_dir/${iso}_contours.pmtiles"
 
 echo "${iso}_contours.pmtiles: $(stat -c%s "$dist_dir/${iso}_contours.pmtiles" 2>/dev/null || stat -f%z "$dist_dir/${iso}_contours.pmtiles") bytes"

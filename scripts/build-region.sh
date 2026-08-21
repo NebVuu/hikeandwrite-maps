@@ -81,4 +81,37 @@ versatiles convert "$planet_url" "$dist_dir/$iso.pmtiles" \
   --max-zoom="$maxzoom" \
   --compress=gzip
 
-echo "$iso.pmtiles: $(stat -c%s "$dist_dir/$iso.pmtiles" 2>/dev/null || stat -f%z "$dist_dir/$iso.pmtiles") bytes"
+bbox_bytes=$(stat -c%s "$dist_dir/$iso.pmtiles" 2>/dev/null || stat -f%z "$dist_dir/$iso.pmtiles")
+echo "$iso.pmtiles (bbox): $bbox_bytes bytes"
+
+# `versatiles convert` can only cut a rectangle (confirmed 21.08.2026 — its
+# CLI has --bbox/--bbox-border and no polygon option), and a country's
+# rectangle is far bigger than the country. Measured padded-bbox area against
+# boundary area: BA 2.06x, RS 2.06x, SI 2.36x, ME 2.53x, HR 2.55x. Croatia is
+# the extreme case: it's a crescent, so its bbox contains the whole of Bosnia
+# and Herzegovina plus slices of Serbia, Hungary, Slovenia, Italy and Austria
+# — which is why HR.pmtiles came out at 750 MiB against BA's 254 MiB while
+# covering a *smaller* country, and why someone downloading both paid for
+# Bosnia twice.
+#
+# So cut the rectangle down to a tile-aligned mask of the boundary itself
+# (scripts/region-mask.js — see its header for why tile squares rather than
+# the polygon, and for the measured pad this keeps). This is a second pass
+# over a local file, not another planet fetch.
+mask_path="$build_dir/masks/$iso.geojson"
+mkdir -p "$build_dir/masks"
+node "$repo_root/scripts/region-mask.js" "$geojson_path" > "$mask_path"
+
+# `pmtiles extract` requires a clustered source archive. Nothing documents
+# whether `versatiles convert` writes one, so try the extract and fall back to
+# clustering rather than assuming either way.
+clipped_path="$dist_dir/${iso}_clipped.pmtiles"
+if ! pmtiles extract "$dist_dir/$iso.pmtiles" "$clipped_path" --region="$mask_path"; then
+  echo "  extract failed — clustering the archive and retrying"
+  pmtiles cluster "$dist_dir/$iso.pmtiles"
+  pmtiles extract "$dist_dir/$iso.pmtiles" "$clipped_path" --region="$mask_path"
+fi
+mv "$clipped_path" "$dist_dir/$iso.pmtiles"
+
+clipped_bytes=$(stat -c%s "$dist_dir/$iso.pmtiles" 2>/dev/null || stat -f%z "$dist_dir/$iso.pmtiles")
+echo "$iso.pmtiles: $clipped_bytes bytes (clipped, was $bbox_bytes)"

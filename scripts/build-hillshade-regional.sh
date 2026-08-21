@@ -17,13 +17,16 @@
 # overzooms more than z11 did) for a ~2.75x smaller one-time download —
 # accepted since contours (10m interval) carry the primary terrain-reading
 # detail in the app's style; hillshade is explicitly a soft base under them,
-# not the main event.
+# not the main event. Those numbers predate the mask below, which cuts the
+# extracted footprint to 60% — so re-measure with `--dry-run` before deciding
+# whether z11 has become affordable again.
 #
 # Requires build-region.sh to have already produced EVERY region's boundary
-# GeoJSON (build/boundaries/<ISO>.geojson) — this unions all of them into
-# one bbox via union-bbox.js rather than a real polygon union, since a
-# rectangular superset is precise enough for a raster relief layer (unlike
-# the basemap's coverage-mask, which does need the real border shape).
+# GeoJSON (build/boundaries/<ISO>.geojson) — region-mask.js unions all of them
+# into one tile-aligned mask. This used to be a single rectangular bbox on the
+# grounds that a raster relief layer doesn't need the real border shape; true,
+# but it isn't about precision — the rectangle simply cost twice as much as
+# the shape it was approximating (see the numbers at the extract below).
 #
 # Usage: scripts/build-hillshade-regional.sh regions/*.yml
 set -euo pipefail
@@ -32,11 +35,13 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 build_dir="$repo_root/build"
 dist_dir="$repo_root/dist"
 hillshade_maxzoom=10
-# Wider than the per-region 0.1 (build-region.sh/build-contours.sh) since
-# this only needs to avoid a visible edge at the outermost supported
-# countries' own borders, not agree tile-for-tile with any one country's
-# basemap extract the way the old per-country hillshade did.
-border_pad_deg=0.3
+# One tile wider than the per-region masks (build-region.sh uses the default
+# 3): relief only has to reach at least as far as the basemap does, so that
+# no shaded edge appears inside ground the user can actually see. 4 z13 tiles
+# is ~13.8 km against the basemap's ~10.4 km. This replaces the old
+# `border_pad_deg=0.3` bbox pad, which was solving the same problem far more
+# expensively.
+mask_dilate=4
 mapterhorn_url="https://download.mapterhorn.com/planet.pmtiles"
 
 if [ "$#" -eq 0 ]; then
@@ -58,9 +63,19 @@ done
 mkdir -p "$dist_dir"
 
 echo "== Regional hillshade (${#geojson_paths[@]} regions) =="
-bbox=$(node "$repo_root/scripts/union-bbox.js" "$border_pad_deg" "${geojson_paths[@]}")
+# A single bbox over five countries was half wasted: measured, the union bbox
+# covered 547,607 km² against 275,707 km² of actual boundary area, so about
+# half of every byte downloaded was Adriatic and foreign territory. The
+# tile-aligned union mask covers 328,425 km² — 60% of that bbox — for the same
+# real coverage. (`scripts/union-bbox.js` is now unused; region-mask.js unions
+# its inputs itself.)
+mask_path="$build_dir/masks/hillshade.geojson"
+mkdir -p "$build_dir/masks"
+node "$repo_root/scripts/region-mask.js" --dilate="$mask_dilate" \
+  "${geojson_paths[@]}" > "$mask_path"
+
 pmtiles extract "$mapterhorn_url" "$dist_dir/hillshade.pmtiles" \
-  --bbox="$bbox" \
+  --region="$mask_path" \
   --maxzoom="$hillshade_maxzoom"
 
 echo "hillshade.pmtiles: $(stat -c%s "$dist_dir/hillshade.pmtiles" 2>/dev/null || stat -f%z "$dist_dir/hillshade.pmtiles") bytes"

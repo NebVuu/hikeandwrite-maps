@@ -8,16 +8,25 @@
 // rearchitecture` decision, 21.08.2026 — hillshade stopped being a
 // per-country file, and contours stopped being a separate per-country
 // file too, once scripts/merge-basemap-contours.sh folds them into the
-// basemap itself). `hasContours` is a fixed `true`, not a per-region
-// probe: every region's dist/<ISO>.pmtiles has already had its contours
-// tileset merged in by the time this script runs, for every region in
-// regions/*.yml — there's no longer a BA-only trial to distinguish.
+// basemap itself).
+//
+// Every asset also carries a `sha256`. The app needs it because these are
+// large files over a mobile connection: a real device already failed
+// mid-stream on the 850MB hillshade, and resuming a partial download via an
+// HTTP Range request is only safe if the finished file can be verified. A
+// corrupt archive is worse than a missing one — the app would read a valid
+// header, render nothing, and look broken rather than incomplete.
+//
+// The old `hasContours` field is gone: it was a hardcoded `true` (no
+// per-region probe) that the app never read, left over from the BA-only
+// contour trial it existed to distinguish.
 //
 // No YAML dependency: regions/*.yml files are flat `key: value` pairs
 // (see regions/ba.yml), so a line-based parse is enough — pulling in a
 // real YAML parser for four scalar fields would be more dependency than
 // the format needs.
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -34,6 +43,25 @@ function parseFlatYaml(text) {
   return result;
 }
 
+/// Streams the file through the hash rather than reading it into a Buffer —
+/// these archives run to hundreds of megabytes and a CI runner shouldn't have
+/// to hold one in memory to describe it.
+function describeAsset(file) {
+  const filePath = path.join(distDir, file);
+  const hash = crypto.createHash('sha256');
+  const chunk = Buffer.alloc(1 << 20);
+  const handle = fs.openSync(filePath, 'r');
+  try {
+    let read = 0;
+    while ((read = fs.readSync(handle, chunk, 0, chunk.length, null)) > 0) {
+      hash.update(chunk.subarray(0, read));
+    }
+  } finally {
+    fs.closeSync(handle);
+  }
+  return {file, size: fs.statSync(filePath).size, sha256: hash.digest('hex')};
+}
+
 const countries = fs
   .readdirSync(regionsDir)
   .filter((file) => file.endsWith('.yml'))
@@ -41,29 +69,30 @@ const countries = fs
     const region = parseFlatYaml(
       fs.readFileSync(path.join(regionsDir, file), 'utf8'),
     );
-    const basemapPath = path.join(distDir, `${region.iso}.pmtiles`);
-    if (!fs.existsSync(basemapPath)) {
-      throw new Error(`Missing ${basemapPath} — did build-region.sh run for ${region.iso}?`);
+    const basemapFile = `${region.iso}.pmtiles`;
+    if (!fs.existsSync(path.join(distDir, basemapFile))) {
+      throw new Error(
+        `Missing dist/${basemapFile} — did build-region.sh run for ${region.iso}?`,
+      );
     }
     return {
       iso: region.iso,
       name: region.name,
       maxzoom: Number(region.maxzoom),
-      hasContours: true,
-      basemap: {
-        file: `${region.iso}.pmtiles`,
-        size: fs.statSync(basemapPath).size,
-      },
+      basemap: describeAsset(basemapFile),
     };
   });
 
-const hillshadePath = path.join(distDir, 'hillshade.pmtiles');
-const hillshade = fs.existsSync(hillshadePath)
-  ? { file: 'hillshade.pmtiles', size: fs.statSync(hillshadePath).size }
+const hillshade = fs.existsSync(path.join(distDir, 'hillshade.pmtiles'))
+  ? describeAsset('hillshade.pmtiles')
   : null;
 
 const manifest = {
-  schemaVersion: 3,
+  // 4, not 3: `hasContours` is gone and every asset gained `sha256`. The app
+  // parses defensively (unknown fields ignored, missing ones tolerated), so
+  // this is informational rather than a gate — but it's the field to check
+  // first when a client and a release disagree.
+  schemaVersion: 4,
   generated_at: new Date().toISOString(),
   source: 'https://download.versatiles.org (VersaTiles Shortbread planet build)',
   hillshade,

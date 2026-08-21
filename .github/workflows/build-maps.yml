@@ -10,10 +10,42 @@ on:
     - cron: '0 3 * * 1'
 
 jobs:
-  build:
+  # A matrix can't glob the filesystem, so the region list has to become a
+  # job output first. This keeps "add a regions/<iso>.yml and the workflow
+  # picks it up" true, which was the point of the serial loops this replaces.
+  discover:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      regions: ${{ steps.list.outputs.regions }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        # ISO codes rather than paths: an artifact name can't contain a slash,
+        # and `region-ba` is a far more useful thing to see in the run summary
+        # than a mangled filename.
+        run: |
+          regions=$(
+            for file in regions/*.yml; do basename "$file" .yml; done \
+              | jq -R -s -c 'split("\n") | map(select(length > 0))'
+          )
+          echo "regions=$regions" >> "$GITHUB_OUTPUT"
+          echo "Building: $regions"
+
+  # One runner per region instead of one runner doing all five in sequence.
+  # Two reasons, both measured: the first full serial run took ~1h15m with
+  # "Build contours" alone accounting for 64 min of it, and a single runner
+  # has only ~14GB free — which the basemaps plus one region's intermediate
+  # DEM/GeoJSON already strain (build-contours.sh deletes its largest
+  # intermediate mid-run specifically to survive that). Per-region runners
+  # give each region its own 14GB and cut wall-clock to roughly the slowest
+  # single region.
+  region:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        region: ${{ fromJSON(needs.discover.outputs.regions) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,11 +54,11 @@ jobs:
           node-version: '20'
 
       - name: Install pmtiles CLI
-        # Still needed even after the versatiles-convert basemap pivot below
-        # — build-hillshade-regional.sh's `pmtiles extract` step is
-        # unrelated to which tool builds the basemap, and merge-basemap-
-        # contours.sh's `tile-join` (from the tippecanoe package, installed
-        # further down) is a separate tool again.
+        # `pmtiles extract --region` clips each region's basemap and contour
+        # tilesets down from the rectangle `versatiles convert` can produce to
+        # the country's own tile-aligned shape (see scripts/region-mask.js).
+        # `tile-join` is a separate tool again, from the tippecanoe package
+        # installed further down.
         run: |
           curl -sL https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz \
             | tar xz pmtiles
@@ -48,29 +80,6 @@ jobs:
           sudo curl -sL https://github.com/mikefarah/yq/releases/download/v4.53.4/yq_linux_amd64 -o /usr/local/bin/yq
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Build each region
-        run: |
-          chmod +x scripts/build-region.sh
-          for region in regions/*.yml; do
-            scripts/build-region.sh "$region"
-          done
-
-      # One shared hillshade extract for every region, not a per-country
-      # file (see offline-maps-rearchitecture, 21.08.2026 — a per-country
-      # ~300MB raster was the biggest single contributor to the "too much
-      # to download" complaint that started this rework, and the same
-      # Copernicus GLO-30 DEM underlies every country regardless of
-      # border). Just a `pmtiles extract` against Mapterhorn's own hosted
-      # planet archive (see build-hillshade-regional.sh) — no GDAL/
-      # tippecanoe dependency, so this runs right after the basemap step
-      # rather than waiting on the GDAL/tippecanoe install below, which
-      # contours alone needs. Needs every region's boundary GeoJSON, which
-      # the basemap loop above has already produced for all of them.
-      - name: Build regional hillshade
-        run: |
-          chmod +x scripts/build-hillshade-regional.sh
-          scripts/build-hillshade-regional.sh regions/*.yml
-
       - name: Install GDAL and tippecanoe (contours)
         # DEBIAN_FRONTEND/NEEDRESTART_MODE: apt-get install on Ubuntu can
         # hang indefinitely waiting for an interactive "restart services?"
@@ -85,38 +94,97 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gdal-bin tippecanoe
 
-      # Contour lines from Copernicus GLO-30, extended from the BA-only
-      # trial (19.08.2026) to every region now that the output's been
-      # checked and looks right (see offline-maps-rearchitecture,
-      # 21.08.2026).
+      - name: Build basemap
+        run: |
+          chmod +x scripts/build-region.sh
+          scripts/build-region.sh "regions/${{ matrix.region }}.yml"
+
       - name: Build contours
+        # Contour lines from Copernicus GLO-30. Needs build-region.sh to have
+        # run first for this region: it produces both the boundary GeoJSON and
+        # the tile mask this step's `gdalwarp -cutline` uses.
         run: |
           chmod +x scripts/build-contours.sh
-          for region in regions/*.yml; do
-            scripts/build-contours.sh "$region"
-          done
+          scripts/build-contours.sh "regions/${{ matrix.region }}.yml"
 
-      # Folds each region's contours straight into its basemap .pmtiles —
-      # the app downloads one vector file per country, not two (see
-      # offline-maps-rearchitecture, 21.08.2026).
-      - name: Merge basemap + contours
+      - name: Merge basemap + contours, drop unused layers
         run: |
           chmod +x scripts/merge-basemap-contours.sh
-          for region in regions/*.yml; do
-            scripts/merge-basemap-contours.sh "$region"
-          done
+          scripts/merge-basemap-contours.sh "regions/${{ matrix.region }}.yml"
 
       # Catches a build silently capped below what regions/<iso>.yml asked
       # for (see scripts/validate-maxzoom.sh's header comment for the
       # 21.08.2026 incident this exists to catch automatically instead of
       # via a manual header inspection after publish) — must run after the
       # merge step above (that's what produces the final dist/<ISO>.pmtiles)
-      # and before the manifest/release steps below, so a mismatch blocks
-      # publishing rather than just getting recorded in the manifest.
+      # and before the artifact upload, so a mismatch blocks publishing
+      # rather than just getting recorded in the manifest.
       - name: Validate max_zoom
         run: |
           chmod +x scripts/validate-maxzoom.sh
-          scripts/validate-maxzoom.sh regions/*.yml
+          scripts/validate-maxzoom.sh "regions/${{ matrix.region }}.yml"
+
+      # The boundary GeoJSON travels with the tileset because the publish job
+      # needs every region's boundary to build the one shared hillshade mask,
+      # and it has no reason to re-run the basemap step to get them.
+      - name: Upload region output
+        uses: actions/upload-artifact@v4
+        with:
+          name: region-${{ matrix.region }}
+          path: |
+            dist/*.pmtiles
+            build/boundaries/*.geojson
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    needs: region
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pmtiles CLI
+        run: |
+          curl -sL https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz \
+            | tar xz pmtiles
+          sudo mv pmtiles /usr/local/bin/pmtiles
+
+      - name: Install yq
+        run: |
+          sudo curl -sL https://github.com/mikefarah/yq/releases/download/v4.53.4/yq_linux_amd64 -o /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+
+      # Every region's artifact unpacks into the same dist/ + build/boundaries/
+      # layout the scripts expect, as if one runner had built them all.
+      - name: Collect region outputs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: region-*
+          merge-multiple: true
+          path: .
+
+      - name: List collected files
+        run: |
+          ls -l dist/
+          ls -l build/boundaries/
+
+      # One shared hillshade extract for every region, not a per-country file
+      # (see offline-maps-rearchitecture, 21.08.2026 — a per-country ~300MB
+      # raster was the biggest single contributor to the "too much to
+      # download" complaint that started this rework, and the same Copernicus
+      # GLO-30 DEM underlies every country regardless of border). Just a
+      # `pmtiles extract` against Mapterhorn's own hosted planet archive, so
+      # no GDAL/tippecanoe needed in this job.
+      - name: Build regional hillshade
+        run: |
+          chmod +x scripts/build-hillshade-regional.sh
+          scripts/build-hillshade-regional.sh regions/*.yml
 
       - name: Build manifest
         run: |
@@ -127,10 +195,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view maps-v3 >/dev/null 2>&1 \
-            || gh release create maps-v3 \
-                 --title "Offline maps v3" \
-                 --notes "Basemap+contours merged into one vector .pmtiles per country, one shared regional hillshade file instead of a per-country extract, basemap maxzoom 14->16. See TASKS.md in the HikeAndWrite repo for the pipeline decision."
+          gh release view maps-v4 >/dev/null 2>&1 \
+            || gh release create maps-v4 \
+                 --title "Offline maps v4" \
+                 --notes "Per-country extracts clipped to a tile-aligned boundary mask instead of a bounding box, unused Shortbread layers dropped, one shared regional hillshade clipped the same way. Basemap maxzoom stays 14 — VersaTiles' planet source has no deeper data (see scripts/validate-maxzoom.sh). Manifest schema 4: per-asset sha256, no hasContours. See TASKS.md in the HikeAndWrite repo."
           for f in dist/*.pmtiles dist/maps.json; do
-            gh release upload maps-v3 "$f" --clobber
+            gh release upload maps-v4 "$f" --clobber
           done
