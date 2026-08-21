@@ -8,11 +8,17 @@ repo).
 
 Each region is extracted directly from
 [VersaTiles' public planet-wide Shortbread build](https://docs.versatiles.org/guides/download_tiles.html)
-(`download.versatiles.org/osm.versatiles`, maxzoom 14) — not built from
-scratch. `versatiles convert` reads the source over HTTP byte-range
-requests (confirmed in versatiles-rs' own source, not just docs), so this
-never downloads the full ~60GB+ planet file, only the tiles inside the
-requested region's bbox.
+(`download.versatiles.org/osm.versatiles`, maxzoom 16 — see
+`regions/*.yml`) — not built from scratch. `versatiles convert` reads the
+source over HTTP byte-range requests (confirmed in versatiles-rs' own
+source, not just docs), so this never downloads the full ~60GB+ planet
+file, only the tiles inside the requested region's bbox.
+
+21.08.2026: `maxzoom` raised from 14 to 16 (see `offline-maps-
+rearchitecture` in the HikeAndWrite repo) for more trail/POI detail —
+Shortbread only emits some road/path kinds and POIs from deeper zooms.
+This grows each region's basemap file; measure a real build's size before
+trusting the old 14/15-era numbers, which predate the VersaTiles pivot.
 
 19.08.2026: pivoted from Protomaps' basemap schema
 (`build.protomaps.com`, maxzoom 15) to VersaTiles Shortbread — see
@@ -32,24 +38,29 @@ carry these either (same limitation Protomaps had), only generic road
 `kind`s on its `streets` layer. Hillshade/terrain relief and contours are
 separate, own pipelines — see below.
 
-## Hillshade (trial, BA only)
+## Hillshade (one shared regional file)
 
-`scripts/build-hillshade.sh` is a plain `pmtiles extract --bbox=...` against
-Mapterhorn's public planet-wide Terrarium-encoded PMTiles archive
-(`download.mapterhorn.com/planet.pmtiles`, Copernicus GLO-30, real data up
-to z12 outside Switzerland) — same HTTP-range-request pattern as
-`build-region.sh`'s basemap step, just a different source. No DEM
-download, no GDAL, no separate raster bake/convert step: the extract is
-already the finished, Terrarium-encoded output `hiking_map_style.dart`'s
+`scripts/build-hillshade-regional.sh` is a plain `pmtiles extract
+--bbox=...` against Mapterhorn's public planet-wide Terrarium-encoded
+PMTiles archive (`download.mapterhorn.com/planet.pmtiles`, Copernicus
+GLO-30, real data up to z12 outside Switzerland) — same HTTP-range-request
+pattern as `build-region.sh`'s basemap step, just a different source. No
+DEM download, no GDAL, no separate raster bake/convert step: the extract
+is already the finished, Terrarium-encoded output `hiking_map_style.dart`'s
 `hillshade-dem` source expects.
 
-Trial, BA only for now (see `.github/workflows/build-maps.yml`'s "Build BA
-hillshade (trial)" step) — extend to `regions/*.yml` once the output's been
-checked and looks right.
+21.08.2026: switched from a per-country extract (`<ISO>_hillshade.pmtiles`,
+~300MB each) to **one** file (`dist/hillshade.pmtiles`) covering the union
+bbox of every `regions/*.yml` entry, capped at maxzoom 11 instead of 12 —
+Mapterhorn's real data is ~30m resolution, which z12 already exceeds, so
+the lower cap loses no real detail while cutting the file's size
+substantially. The app downloads this once, ever, regardless of how many
+countries get added (see `offline-maps-rearchitecture` in the HikeAndWrite
+repo).
 
-## Contours (trial, BA only)
+## Contours (all regions, merged into the basemap)
 
-`scripts/build-contours.sh` generates 20m-interval contour lines from
+`scripts/build-contours.sh` generates 10m-interval contour lines from
 Copernicus GLO-30 DEM data (the same free source Mapterhorn's hillshade
 already uses outside Switzerland) — `gdalbuildvrt` + `gdalwarp` (clip to the
 region boundary) + `gdal_contour` (extract lines as GeoJSON) + `tippecanoe`
@@ -57,13 +68,14 @@ region boundary) + `gdal_contour` (extract lines as GeoJSON) + `tippecanoe`
 Copernicus tiles cover a region's boundary and prints their (verified, public,
 no-credentials-needed) download URLs.
 
-This is a trial — see `.github/workflows/build-maps.yml`'s "Build BA
-contours (trial)" step — run for `regions/ba.yml` only, and **not yet
-verified end-to-end anywhere** (no GDAL/tippecanoe available on the machine
-that wrote this). Check the actual output (`dist/BA_contours.pmtiles`, e.g.
-via the `pmtiles.io` viewer) before trusting it or extending it to other
-regions. Not wired into the app yet either — that's a separate step once the
-tiles themselves look right.
+Extended 21.08.2026 from the original BA-only trial (19.08.2026) to every
+region in `regions/*.yml`, and no longer published as its own
+`<ISO>_contours.pmtiles` release asset: `scripts/merge-basemap-
+contours.sh` runs `tile-join` right after, folding the `contours` layer
+into that same region's `dist/<ISO>.pmtiles` and deleting the standalone
+file — Shortbread's basemap layers and the `contours` layer don't share a
+name, so this is a straight union, not a conflict to resolve. The app
+downloads one vector file per country, not two.
 
 ## Adding a region
 
@@ -73,7 +85,7 @@ Add a `regions/<iso>.yml`:
 iso: BA
 name: Bosna i Hercegovina
 geofabrik_poly_url: https://download.geofabrik.de/europe/bosnia-herzegovina.poly
-maxzoom: 14
+maxzoom: 16
 ```
 
 `geofabrik_poly_url` only needs to point at a boundary outline (Geofabrik's
@@ -87,25 +99,34 @@ Requires `versatiles` (versatiles-rs CLI), `pmtiles` (go-pmtiles CLI, used by
 the hillshade step's Mapterhorn extract), `yq`, and Node on `PATH`.
 
 ```sh
-scripts/build-region.sh regions/ba.yml
-scripts/build-hillshade.sh regions/ba.yml
+for region in regions/*.yml; do scripts/build-region.sh "$region"; done
+scripts/build-hillshade-regional.sh regions/*.yml
 scripts/merge-manifest.sh
 ```
 
-Output lands in `dist/` (gitignored) — `<ISO>.pmtiles`/`<ISO>_hillshade.pmtiles`
-per region plus `maps.json`.
+Output lands in `dist/` (gitignored) — `<ISO>.pmtiles` per region plus one
+shared `hillshade.pmtiles` and `maps.json`.
 
 Contours additionally need `gdalbuildvrt`/`gdalwarp`/`gdal_contour` (GDAL)
-and `tippecanoe` on `PATH`:
+and `tippecanoe` (which also provides `tile-join`) on `PATH`, and must run
+before the manifest step so each region's `<ISO>.pmtiles` already has its
+contours merged in when `merge-manifest.js` reads its size:
 
 ```sh
-scripts/build-contours.sh regions/ba.yml
+for region in regions/*.yml; do
+  scripts/build-contours.sh "$region"
+  scripts/merge-basemap-contours.sh "$region"
+done
 ```
 
 ## Publishing
 
 `.github/workflows/build-maps.yml` runs weekly (and on manual dispatch),
-builds every region, and publishes the results to the `maps-v2` GitHub
+builds every region, and publishes the results to the `maps-v3` GitHub
 Release, overwriting that release's assets each run (`gh release upload
 --clobber`) rather than creating a new dated release each time — the app
-always points at the same release tag.
+always points at the same release tag. `maps-v2` (the old per-country
+3-file layout: separate basemap/hillshade/contours) stays published,
+untouched, until an app build using `maps-v3` has actually shipped — the
+base URL is a build-time `--dart-define`, so there's no way for one app
+binary to handle both layouts.

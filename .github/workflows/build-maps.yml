@@ -23,8 +23,10 @@ jobs:
 
       - name: Install pmtiles CLI
         # Still needed even after the versatiles-convert basemap pivot below
-        # — build-hillshade.sh's `pmtiles convert` step (mbtiles → pmtiles)
-        # is unrelated to which tool builds the basemap.
+        # — build-hillshade-regional.sh's `pmtiles extract` step is
+        # unrelated to which tool builds the basemap, and merge-basemap-
+        # contours.sh's `tile-join` (from the tippecanoe package, installed
+        # further down) is a separate tool again.
         run: |
           curl -sL https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz \
             | tar xz pmtiles
@@ -53,17 +55,21 @@ jobs:
             scripts/build-region.sh "$region"
           done
 
-      # Trial run, BA only, same discipline as contours below (see
-      # TASKS.md, "Hillshade + konture") — maps-v2 has never had a
-      # hillshade file at all until this step. Just a `pmtiles extract`
-      # against Mapterhorn's own hosted planet archive (see
-      # build-hillshade.sh) — no GDAL/tippecanoe dependency, so this runs
-      # right after the basemap step rather than waiting on the
-      # GDAL/tippecanoe install below, which contours alone needs.
-      - name: Build BA hillshade (trial)
+      # One shared hillshade extract for every region, not a per-country
+      # file (see offline-maps-rearchitecture, 21.08.2026 — a per-country
+      # ~300MB raster was the biggest single contributor to the "too much
+      # to download" complaint that started this rework, and the same
+      # Copernicus GLO-30 DEM underlies every country regardless of
+      # border). Just a `pmtiles extract` against Mapterhorn's own hosted
+      # planet archive (see build-hillshade-regional.sh) — no GDAL/
+      # tippecanoe dependency, so this runs right after the basemap step
+      # rather than waiting on the GDAL/tippecanoe install below, which
+      # contours alone needs. Needs every region's boundary GeoJSON, which
+      # the basemap loop above has already produced for all of them.
+      - name: Build regional hillshade
         run: |
-          chmod +x scripts/build-hillshade.sh
-          scripts/build-hillshade.sh regions/ba.yml
+          chmod +x scripts/build-hillshade-regional.sh
+          scripts/build-hillshade-regional.sh regions/*.yml
 
       - name: Install GDAL and tippecanoe (contours)
         # DEBIAN_FRONTEND/NEEDRESTART_MODE: apt-get install on Ubuntu can
@@ -79,14 +85,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gdal-bin tippecanoe
 
-      # Trial run, BA only (see TASKS.md, "Hillshade + konture") — contour
-      # lines from Copernicus GLO-30, first time this pipeline has actually
-      # run anywhere. Extend to `regions/*.yml` once the output's been
-      # checked and looks right.
-      - name: Build BA contours (trial)
+      # Contour lines from Copernicus GLO-30, extended from the BA-only
+      # trial (19.08.2026) to every region now that the output's been
+      # checked and looks right (see offline-maps-rearchitecture,
+      # 21.08.2026).
+      - name: Build contours
         run: |
           chmod +x scripts/build-contours.sh
-          scripts/build-contours.sh regions/ba.yml
+          for region in regions/*.yml; do
+            scripts/build-contours.sh "$region"
+          done
+
+      # Folds each region's contours straight into its basemap .pmtiles —
+      # the app downloads one vector file per country, not two (see
+      # offline-maps-rearchitecture, 21.08.2026).
+      - name: Merge basemap + contours
+        run: |
+          chmod +x scripts/merge-basemap-contours.sh
+          for region in regions/*.yml; do
+            scripts/merge-basemap-contours.sh "$region"
+          done
 
       - name: Build manifest
         run: |
@@ -97,10 +115,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view maps-v2 >/dev/null 2>&1 \
-            || gh release create maps-v2 \
-                 --title "Offline maps v2" \
-                 --notes "Basemap extracts from VersaTiles' public Shortbread planet build (download.versatiles.org). See TASKS.md in the HikeAndWrite repo for the pipeline decision."
+          gh release view maps-v3 >/dev/null 2>&1 \
+            || gh release create maps-v3 \
+                 --title "Offline maps v3" \
+                 --notes "Basemap+contours merged into one vector .pmtiles per country, one shared regional hillshade file instead of a per-country extract, basemap maxzoom 14->16. See TASKS.md in the HikeAndWrite repo for the pipeline decision."
           for f in dist/*.pmtiles dist/maps.json; do
-            gh release upload maps-v2 "$f" --clobber
+            gh release upload maps-v3 "$f" --clobber
           done
