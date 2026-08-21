@@ -2,12 +2,32 @@ name: Build maps
 
 on:
   workflow_dispatch: {}
+  # Path-scoped so a change that actually alters the tiles rebuilds them,
+  # while a README or docs commit doesn't spend 25 minutes of runners saying
+  # the same thing twice. Everything the build reads is under these paths;
+  # note the workflow file itself is included, since installing a different
+  # tool version changes the output as surely as editing a script does.
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'regions/**'
+      - '.github/workflows/build-maps.yml'
   schedule:
     # Weekly — VersaTiles' `osm.versatiles` alias always resolves to its
     # current planet build (no dated-retention window to match, unlike the
     # Protomaps-era pipeline this replaced), so this just keeps our
     # extracts reasonably fresh against upstream OSM data.
     - cron: '0 3 * * 1'
+
+# One build at a time, globally — not per ref. The publish job uploads to a
+# single fixed release tag with `--clobber`, so two overlapping runs would
+# race to overwrite each other's assets and could leave the release holding a
+# mix of both. Cancelling the older one is the right resolution when the
+# trigger is "someone just pushed a fix".
+concurrency:
+  group: build-maps
+  cancel-in-progress: true
 
 jobs:
   # A matrix can't glob the filesystem, so the region list has to become a

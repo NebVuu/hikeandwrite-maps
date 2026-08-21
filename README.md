@@ -160,12 +160,19 @@ build if a region's published file doesn't actually reach it.
 
 ## Publishing
 
-`.github/workflows/build-maps.yml` runs weekly (and on manual dispatch) as
-three jobs: `discover` turns `regions/*.yml` into a matrix, `region` builds
-one country per runner (basemap → contours → merge/filter → validate
-`max_zoom`) and uploads it as an artifact, and `publish` collects those
-artifacts, builds the one shared hillshade from every region's boundary, writes
-the manifest and uploads the release.
+`.github/workflows/build-maps.yml` runs on a push to `main` that touches
+`scripts/`, `regions/` or the workflow itself, weekly, and on manual
+dispatch — as three jobs: `discover` turns `regions/*.yml` into a matrix,
+`region` builds one country per runner (basemap → contours → merge/filter →
+validate `max_zoom`) and uploads it as an artifact, and `publish` collects
+those artifacts, builds the one shared hillshade from every region's
+boundary, writes the manifest and uploads the release.
+
+The push trigger is path-scoped so a docs commit doesn't spend 25 minutes of
+runners rebuilding identical tiles, and the whole workflow runs under one
+global `concurrency` group with `cancel-in-progress` — the publish job
+uploads to a fixed release tag with `--clobber`, so two overlapping runs
+would race to overwrite each other's assets.
 
 It used to be a single job looping over the regions serially. Two measured
 reasons it isn't: the first full run took ~1h15m with the contour step alone
