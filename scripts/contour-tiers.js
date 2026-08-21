@@ -9,23 +9,18 @@
 // the whole basemap — for a single-attribute line layer (see TASKS.md,
 // "Hillshade + konture").
 //
-// Four tiers, each zoom step roughly doubling the line density, so the map
-// gains detail as you zoom in rather than dumping every line at once:
-//   every 200m -> z11   (major structure, readable across a whole range)
-//   every 100m -> z12
-//   every  40m -> z13
-//   every  20m -> z14   (deepest zoom the basemap itself supports)
-// This tiering — not any rate-based drop — is the intended size lever, since
-// it thins by elevation significance rather than by whichever tile happens
-// to be busiest (which meant steep terrain, i.e. exactly where contours
-// matter, lost lines first).
-//
-// The steps have to divide the source interval or the tier is silently
-// empty. With build-contours.sh back at 20m (21.08.2026), the previous
-// 100/50/20/10 ladder would have put nothing at z12 — 50 is not a multiple
-// of 20, so the only elevations it could match were multiples of 100, which
-// the z11 tier already claimed — and nothing at z14, leaving a bare jump
-// from 100m straight to 20m in one zoom step. 200/100/40/20 all divide 20.
+// 20.08.2026: four tiers instead of two, after the interval went 20m ->
+// 10m (see build-contours.sh). Each zoom step roughly doubles the line
+// density, so the map gains detail as you zoom in rather than dumping
+// every 10m line at once:
+//   every 100m -> z11   (major structure, readable across a whole range)
+//   every  50m -> z12
+//   every  20m -> z13   (the old default interval)
+//   every  10m -> z14   (deepest zoom the basemap itself supports)
+// This tiering — not tippecanoe's drop-densest valve — is the intended
+// size lever, since it thins by elevation significance rather than by
+// whichever tile happens to be busiest (which meant steep terrain, i.e.
+// exactly where contours matter, lost lines first).
 //
 // **Streams line-delimited input, one feature at a time.** The previous
 // version read the whole file with `fs.readFileSync(path, 'utf8')` and
@@ -69,9 +64,9 @@ function isMultipleOf(elevation, step) {
 }
 
 function minzoomFor(elevation) {
-  if (isMultipleOf(elevation, 200)) return 11;
-  if (isMultipleOf(elevation, 100)) return 12;
-  if (isMultipleOf(elevation, 40)) return 13;
+  if (isMultipleOf(elevation, 100)) return 11;
+  if (isMultipleOf(elevation, 50)) return 12;
+  if (isMultipleOf(elevation, 20)) return 13;
   return 14;
 }
 

@@ -12,20 +12,13 @@
 # per-feature-minzoom tiering below cut that to 2.6MB.
 #
 # 20.08.2026: interval 20m -> 10m and maxzoom 13 -> 14, after on-device
-# testing showed contours reading as too sparse.
-#
-# 21.08.2026: back to 20m, because that sparseness was never the interval.
-# Tippecanoe's default drop rate was discarding 97.8% of the lines at every
-# zoom (see the tippecanoe call below for the measured numbers), so halving
-# the interval only doubled the input to a mechanism that threw away the
-# same fraction. With the drop rate off, 20m ships every line it generates
-# and is far denser than 10m ever was in practice.
-#
-# 20m is also the honest limit of the source: a 10m interval on a
-# 30m-resolution DEM is finer than the elevation samples can justify, so
-# those extra lines carry interpolation wobble rather than real terrain, and
-# it matches what OpenAndroMaps and its users settled on for hiking maps
-# (see TASKS.md, "Istraženo — šta koriste popularne hiking app-e").
+# testing showed contours reading as too sparse to give the dense,
+# terrain-following look a paper topo map has. NOTE the honest tradeoff: a
+# 10m interval on a 30m-resolution DEM is finer than the source can
+# strictly justify, so individual lines carry some interpolation wobble —
+# the `-simplify` pass below is what keeps that from looking noisy. Also
+# dropped `--drop-densest-as-needed` (see the tippecanoe call) which was
+# silently deleting lines exactly on steep terrain.
 #
 # Requires build-region.sh to have already produced this region's
 # boundary GeoJSON (build/boundaries/<ISO>.geojson).
@@ -37,7 +30,7 @@ region_file=$1
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 build_dir="$repo_root/build"
 dist_dir="$repo_root/dist"
-contour_interval_m=20
+contour_interval_m=10
 # Matches build-region.sh's border_pad_deg — same reasoning, applied here so
 # contour lines and the basemap agree on how far past the border to cover.
 border_pad_deg=0.1
@@ -146,45 +139,25 @@ echo "tiered contours: $(du -h "$tiered_geojson" | cut -f1)"
 # recorded_track_map.dart), so the deepest zoom a user can reach still has
 # real contour tiles rather than an overzoomed z13 stretch.
 #
-# `--drop-rate=1` is the load-bearing flag here, and its absence is why
-# contours have never actually been visible on-device.
-#
-# `-pf`/`-pk` (--no-feature-limit / --no-tile-size-limit) were added
-# 20.08.2026 in place of `--drop-densest-as-needed`, on the understanding
-# that they stopped tippecanoe thinning the output. They don't: they lift the
-# per-tile feature-count and byte-size *limits*, while tippecanoe's drop rate
-# is a separate mechanism that is on by default and applies regardless.
-#
-# The published archive's own metadata records what it cost (21.08.2026,
-# read back out of BA.pmtiles' tilestats `strategies`): 86,596 features
-# dropped at z11, 161,236 at z12, 553,073 at z13 and 1,359,343 at z14 —
-# against 30,520 kept. Roughly 1.39M contour lines generated, 2.2% shipped,
-# about 1.8 lines per z14 tile. That is why they read as "too sparse" on
-# 20.08 and as absent on 21.08, and why halving the interval from 20m to 10m
-# didn't help: more input, same fraction discarded. It is also what the
-# 285MB → 2.6MB "size win" of 19.08 actually was.
-#
-# The per-feature minzoom tiering above (contour-tiers.js) is the intended
-# size lever, because it thins by elevation significance rather than by
-# whichever tile happens to be busiest — steep terrain, i.e. exactly where a
-# hiker needs lines, is the densest and so the first to be thinned by any
-# rate-based drop. Watch the output size below: nothing is silently
-# discarding features any more, so if a region comes out unreasonably large,
-# tighten the tiering or widen `contour_interval_m` rather than restoring a
-# drop.
-#
-# `-x ID` drops gdal_contour's sequential feature id, which is carried on
-# every line and read by nothing (the style only uses `elev`).
+# `-pf`/`-pk` (--no-feature-limit / --no-tile-size-limit) replace the
+# previous `--drop-densest-as-needed`, which is the likeliest reason
+# contours read as missing on-device (20.08.2026): that flag drops features
+# from tiles that exceed tippecanoe's default limits, and contour tiles are
+# densest exactly on steep mountain terrain — i.e. it was deleting lines
+# precisely where a hiker needs them, while leaving flat areas intact. The
+# per-feature minzoom tiering above (contour-tiers.js) is the right lever
+# for size instead, since it thins by elevation significance rather than by
+# whichever tile happens to be busiest. Watch the output size below: this
+# removes tippecanoe's own safety valve, so if a region ever comes out
+# unreasonably large, tighten the tiering rather than restoring the drop.
 tippecanoe \
   --output="$dist_dir/${iso}_contours.pmtiles" \
   --layer=contours \
   --minimum-zoom=11 \
   --maximum-zoom=14 \
   --simplification=10 \
-  --drop-rate=1 \
   --no-feature-limit \
   --no-tile-size-limit \
-  --exclude=ID \
   --force \
   "$tiered_geojson"
 
