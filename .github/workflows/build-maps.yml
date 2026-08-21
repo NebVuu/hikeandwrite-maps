@@ -106,6 +106,18 @@ jobs:
             scripts/merge-basemap-contours.sh "$region"
           done
 
+      # Catches a build silently capped below what regions/<iso>.yml asked
+      # for (see scripts/validate-maxzoom.sh's header comment for the
+      # 21.08.2026 incident this exists to catch automatically instead of
+      # via a manual header inspection after publish) — must run after the
+      # merge step above (that's what produces the final dist/<ISO>.pmtiles)
+      # and before the manifest/release steps below, so a mismatch blocks
+      # publishing rather than just getting recorded in the manifest.
+      - name: Validate max_zoom
+        run: |
+          chmod +x scripts/validate-maxzoom.sh
+          scripts/validate-maxzoom.sh regions/*.yml
+
       - name: Build manifest
         run: |
           chmod +x scripts/merge-manifest.sh

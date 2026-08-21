@@ -92,13 +92,17 @@ Add a `regions/<iso>.yml`:
 iso: BA
 name: Bosna i Hercegovina
 geofabrik_poly_url: https://download.geofabrik.de/europe/bosnia-herzegovina.poly
-maxzoom: 16
+maxzoom: 14
 ```
 
 `geofabrik_poly_url` only needs to point at a boundary outline (Geofabrik's
 `.poly` files are convenient because one already exists per country/region)
 — `scripts/poly2geojson.js` converts it to the GeoJSON `versatiles convert`
 needs. The workflow picks up every file in `regions/` automatically.
+
+`maxzoom` here is a request, not a guarantee — see the 21.08.2026 note
+above. `scripts/validate-maxzoom.sh` (see "Publishing" below) fails the
+build if a region's published file doesn't actually reach it.
 
 ## Running locally
 
@@ -129,11 +133,14 @@ done
 ## Publishing
 
 `.github/workflows/build-maps.yml` runs weekly (and on manual dispatch),
-builds every region, and publishes the results to the `maps-v3` GitHub
-Release, overwriting that release's assets each run (`gh release upload
---clobber`) rather than creating a new dated release each time — the app
-always points at the same release tag. `maps-v2` (the old per-country
-3-file layout: separate basemap/hillshade/contours) stays published,
-untouched, until an app build using `maps-v3` has actually shipped — the
-base URL is a build-time `--dart-define`, so there's no way for one app
-binary to handle both layouts.
+builds every region, validates each one's actual `max_zoom` against its
+`regions/<iso>.yml` (`scripts/validate-maxzoom.sh` — see the 21.08.2026
+note above for the incident this catches automatically instead of via a
+manual header inspection after publish), then publishes the results to
+the `maps-v3` GitHub Release, overwriting that release's assets each run
+(`gh release upload --clobber`) rather than creating a new dated release
+each time — the app always points at the same release tag. `maps-v2` (the
+old per-country 3-file layout: separate basemap/hillshade/contours) stays
+published, untouched, until an app build using `maps-v3` has actually
+shipped — the base URL is a build-time `--dart-define`, so there's no way
+for one app binary to handle both layouts.
