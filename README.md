@@ -8,17 +8,20 @@ repo).
 
 Each region is extracted directly from
 [VersaTiles' public planet-wide Shortbread build](https://docs.versatiles.org/guides/download_tiles.html)
-(`download.versatiles.org/osm.versatiles`, maxzoom 16 — see
+(`download.versatiles.org/osm.versatiles`, maxzoom 14 — see
 `regions/*.yml`) — not built from scratch. `versatiles convert` reads the
 source over HTTP byte-range requests (confirmed in versatiles-rs' own
 source, not just docs), so this never downloads the full ~60GB+ planet
 file, only the tiles inside the requested region's bbox.
 
-21.08.2026: `maxzoom` raised from 14 to 16 (see `offline-maps-
-rearchitecture` in the HikeAndWrite repo) for more trail/POI detail —
-Shortbread only emits some road/path kinds and POIs from deeper zooms.
-This grows each region's basemap file; measure a real build's size before
-trusting the old 14/15-era numbers, which predate the VersaTiles pivot.
+21.08.2026: tried raising `maxzoom` from 14 to 16 for more trail/POI
+detail, then reverted — confirmed via the published `maps-v3` files' own
+PMTiles headers (`min_zoom`/`max_zoom` bytes) that every region still came
+out at max_zoom 14 regardless of the requested `--max-zoom`. VersaTiles'
+`osm.versatiles` planet build is itself only built to z14 — there is no
+deeper source data for `versatiles convert` to extract, so `regions/*.yml`
+cannot ask for more than the source actually has. Getting real z15+ detail
+would need a different/deeper upstream source, not a config change here.
 
 19.08.2026: pivoted from Protomaps' basemap schema
 (`build.protomaps.com`, maxzoom 15) to VersaTiles Shortbread — see
