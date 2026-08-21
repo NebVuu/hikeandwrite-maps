@@ -98,13 +98,28 @@ what unclipped z10 did.
 
 ## Contours (all regions, merged into the basemap)
 
-`scripts/build-contours.sh` generates 10m-interval contour lines from
+`scripts/build-contours.sh` generates 20m-interval contour lines from
 Copernicus GLO-30 DEM data (the same free source Mapterhorn's hillshade
 already uses outside Switzerland) — `gdalbuildvrt` + `gdalwarp` (clip to the
 region's tile mask) + `gdal_contour` (extract lines as GeoJSON) + `tippecanoe`
 (build the vector tiles). `scripts/dem-tiles.js` works out which 1°×1°
 Copernicus tiles cover a region's boundary and prints their (verified, public,
 no-credentials-needed) download URLs.
+
+**21.08.2026 — contours had never actually been visible on-device, and the
+cause was `tippecanoe`'s default drop rate.** `--no-feature-limit` and
+`--no-tile-size-limit` lift the per-tile count and byte limits; they do not
+touch the drop rate, which is on by default. Read back out of the published
+`BA.pmtiles`' own tilestats: 86,596 lines dropped at z11, 161,236 at z12,
+553,073 at z13 and 1,359,343 at z14, against 30,520 kept — about 1.39M
+generated, **2.2% shipped**, roughly 1.8 lines per z14 tile. `--drop-rate=1`
+fixes it. This also explains the 19.08 "285MB → 2.6MB" size win (it was the
+data being discarded, not simplified) and why halving the interval on 20.08
+didn't make them denser (more input, same fraction thrown away). The interval
+went back to 20m at the same time: with every line actually shipped, 20m is
+far denser than 10m ever was in practice, and 10m on a 30m DEM was finer than
+the elevation samples justify anyway. Tier steps must divide the interval or
+the tier is silently empty — see `scripts/contour-tiers.js`.
 
 The `gdalwarp -cutline` against `scripts/region-mask.js`' output matters more
 here than anywhere else in the pipeline: "Build contours" is by far its
