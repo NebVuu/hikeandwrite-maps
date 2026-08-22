@@ -240,8 +240,13 @@ if (!filePath || !label) {
   process.exit(1);
 }
 if (!fs.existsSync(filePath)) {
-  console.log(`## ${label}\n(missing: ${filePath})\n`);
-  process.exit(0);
+  // Exit 1, not 0 — a missing file here means this diagnostic step told
+  // nobody anything useful, and that is a failure worth seeing immediately
+  // rather than discovering after a full CI run that every "successful"
+  // step was silently a no-op (which is exactly what happened the first
+  // time this ran, from a lowercase/uppercase filename mismatch).
+  console.error(`## ${label}\n(missing: ${filePath})\n`);
+  process.exit(1);
 }
 
 const fileBuffer = fs.readFileSync(filePath);
