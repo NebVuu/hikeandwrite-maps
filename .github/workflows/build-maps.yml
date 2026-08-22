@@ -273,6 +273,33 @@ jobs:
             --all-tiles 43.6,17.85 \
             | tee -a diagnostics/synthetic.txt
 
+      # tippecanoe's own README says "-r1 or --drop-rate=rate: ... Setting
+      # the rate to 1 preserves all points at lower zoom levels" — i.e. 1 is
+      # the documented "disable" value, not 0. The 21.08.2026 test of
+      # --drop-rate=1 ran against the old *merged* (tile-join) output before
+      # Problem A/B were known to be separate bugs (see
+      # offline-maps-rearchitecture memory) and 22.08's CONTROL B tested
+      # --drop-rate=0 instead — so --drop-rate=1 against today's standalone,
+      # unmerged contours file has never actually been tried. Cheap enough
+      # to test here before touching the real 598K-feature BA build.
+      - name: 'CONTROL: --drop-rate=1 (the documented disable value)'
+        run: |
+          tippecanoe \
+            --output=dist/synthetic_contours_droprate1.pmtiles \
+            --layer=contours \
+            --minimum-zoom=11 \
+            --maximum-zoom=14 \
+            --simplification=10 \
+            --no-feature-limit \
+            --no-tile-size-limit \
+            --drop-rate=1 \
+            --force \
+            /tmp/synthetic.geojsonl
+          node scripts/diagnose-contours.js \
+            dist/synthetic_contours_droprate1.pmtiles "synthetic: CONTROL --drop-rate=1" \
+            --all-tiles 43.6,17.85 \
+            | tee -a diagnostics/synthetic.txt
+
       - name: Commit synthetic diagnostic to this branch
         run: |
           git config user.name 'build-maps diagnostics'
