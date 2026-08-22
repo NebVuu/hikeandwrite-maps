@@ -212,13 +212,20 @@ jobs:
           scripts/merge-manifest.sh
 
       - name: Publish release
+        # maps-v5 was published from a branch (contours-separate-file,
+        # Problem B fix: contours never merged into the basemap) whose tag
+        # bump never made it back into this file — main was still on v4.
+        # v6 bumps past that and carries today's Problem A fix (see
+        # offline-maps-rearchitecture memory, 22.08.2026). Never reuse an
+        # old tag for structurally different content — bump forward so an
+        # already-shipped app build keeps pointing at stable bytes.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view maps-v4 >/dev/null 2>&1 \
-            || gh release create maps-v4 \
-                 --title "Offline maps v4" \
-                 --notes "Per-country extracts clipped to a tile-aligned boundary mask instead of a bounding box, unused Shortbread layers dropped, one shared regional hillshade clipped the same way. Basemap maxzoom stays 14 — VersaTiles' planet source has no deeper data (see scripts/validate-maxzoom.sh). Manifest schema 4: per-asset sha256, no hasContours. See TASKS.md in the HikeAndWrite repo."
+          gh release view maps-v6 >/dev/null 2>&1 \
+            || gh release create maps-v6 \
+                 --title "Offline maps v6" \
+                 --notes "Contours fixed: per-feature tippecanoe.minzoom tagging was silently collapsing every tile to ~1 feature regardless of --drop-rate/--no-feature-limit/--no-tile-size-limit (a real tippecanoe v2.49.0 defect, confirmed via a minimal repro). Replaced with one tippecanoe run per zoom tier (global --minimum-zoom) plus tile-join. Contour files are now much larger since they carry real data (BA: ~117MB vs the broken ~6MB) but correctness was the bar, not size. Also carries forward maps-v5's Problem B fix (contours never merged into the basemap), whose tag bump never reached this file. Manifest schema 4: per-asset sha256, no hasContours. See TASKS.md in the HikeAndWrite repo."
           for f in dist/*.pmtiles dist/maps.json; do
-            gh release upload maps-v4 "$f" --clobber
+            gh release upload maps-v6 "$f" --clobber
           done
