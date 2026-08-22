@@ -70,21 +70,27 @@ function zigzagLine(bbox, offsetFraction) {
 // silently behaving as if maxzoom==minzoom would explain it perfectly —
 // this flag tests that directly by setting maxzoom explicitly.
 const withMaxzoom = process.argv.includes('--with-maxzoom');
+// --no-tippecanoe-tag isolates whether the per-feature `tippecanoe.minzoom`
+// tagging itself is what triggers the collapse, independent of maxzoom or
+// drop-rate: with this flag, features carry no tippecanoe hints at all, so
+// tippecanoe's own default pyramid logic decides zoom appearance instead
+// of contour-tiers.js-style manual per-feature minzoom.
+const noTag = process.argv.includes('--no-tippecanoe-tag');
 
 function feature(tier, z, x, y, offsetFraction, elev) {
   const bbox = tileBBox(z, x, y);
-  const tippecanoeProps = withMaxzoom
-    ? { minzoom: tier, maxzoom: 14 }
-    : { minzoom: tier };
-  return {
+  const result = {
     type: 'Feature',
     properties: { elev, tier },
-    tippecanoe: tippecanoeProps,
     geometry: {
       type: 'LineString',
       coordinates: zigzagLine(bbox, offsetFraction),
     },
   };
+  if (!noTag) {
+    result.tippecanoe = withMaxzoom ? { minzoom: tier, maxzoom: 14 } : { minzoom: tier };
+  }
+  return result;
 }
 
 const tiles = {

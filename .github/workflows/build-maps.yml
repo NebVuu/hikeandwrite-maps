@@ -278,20 +278,25 @@ jobs:
       # produced byte-identical strategies/output to the baseline above.
       # Confirms --drop-rate, at any value, is not the mechanism here.
       #
-      # New hypothesis: tippecanoe's docs say a feature's own
-      # `tippecanoe.maxzoom`, if unset, defaults to the layer's
-      # --maximum-zoom — i.e. minzoom should be a floor. Every feature in
-      # the baseline above only carries `minzoom`. If maxzoom is silently
-      # defaulting to minzoom instead (features surviving only at their own
-      # tagged zoom, never above it), that exactly matches the observed
-      # symptom in both this repro and the real 598K-feature BA build.
-      # generate-synthetic-contours.js --with-maxzoom sets maxzoom=14
-      # explicitly to test this directly.
-      - name: 'CONTROL: explicit tippecanoe.maxzoom=14 per feature'
+      # ALSO RULED OUT: explicit tippecanoe.maxzoom=14 per feature (testing
+      # whether an unset maxzoom silently pins to minzoom instead of
+      # defaulting to --maximum-zoom) came back byte-identical too.
+      #
+      # Sharper isolation: even the z11 tile alone has 2 features at the
+      # SAME minzoom (both tier 11, well-separated, no cascading involved)
+      # and only 1 survives — so this was never really about cascading
+      # between tiers at all. Next: is `tippecanoe.minzoom` tagging itself
+      # the trigger? --no-tippecanoe-tag strips ALL tippecanoe hints, so
+      # tippecanoe's own default pyramid logic (no per-feature minzoom)
+      # decides zoom appearance — if multiple untagged features in one
+      # tile now survive correctly, the bug is specific to per-feature
+      # minzoom tagging on lines; if not, it's something else entirely
+      # (simplification, or a deeper multi-line-per-tile defect).
+      - name: 'CONTROL: no per-feature tippecanoe.minzoom tag at all'
         run: |
-          node scripts/generate-synthetic-contours.js --with-maxzoom > /tmp/synthetic-maxzoom.geojsonl
+          node scripts/generate-synthetic-contours.js --no-tippecanoe-tag > /tmp/synthetic-notag.geojsonl
           tippecanoe \
-            --output=dist/synthetic_contours_maxzoom.pmtiles \
+            --output=dist/synthetic_contours_notag.pmtiles \
             --layer=contours \
             --minimum-zoom=11 \
             --maximum-zoom=14 \
@@ -299,9 +304,9 @@ jobs:
             --no-feature-limit \
             --no-tile-size-limit \
             --force \
-            /tmp/synthetic-maxzoom.geojsonl
+            /tmp/synthetic-notag.geojsonl
           node scripts/diagnose-contours.js \
-            dist/synthetic_contours_maxzoom.pmtiles "synthetic: CONTROL explicit maxzoom=14" \
+            dist/synthetic_contours_notag.pmtiles "synthetic: CONTROL no tippecanoe.minzoom tag" \
             --all-tiles 43.6,17.85 \
             | tee -a diagnostics/synthetic.txt
 
