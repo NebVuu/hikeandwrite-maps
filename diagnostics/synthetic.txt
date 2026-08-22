@@ -12,3 +12,31 @@ actual tile data: entries=37 tiles=37 contour_tiles=37 contour_features=37 conto
   z13/4502/2991 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
   z14/9004/5982 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
 
+## synthetic: 8 hand-built lines, 2 per tier
+file: dist/synthetic_contours.pmtiles
+size: 4098 bytes
+zoom: 11-14
+contours tilestats: count=8 geometry=LineString
+strategies: [{},{},{},{},{},{},{},{},{},{},{},{"dropped_by_rate":1},{"dropped_by_rate":2},{"dropped_by_rate":4},{"dropped_by_rate":8}]
+generator: tippecanoe v2.49.0
+generator_options: tippecanoe '--output=dist/synthetic_contours.pmtiles' '--layer=contours' '--minimum-zoom=11' '--maximum-zoom=14' '--simplification=10' --no-feature-limit --no-tile-size-limit --force /tmp/synthetic.geojsonl
+actual tile data: entries=37 tiles=37 contour_tiles=37 contour_features=37 contour_line_parts=37 contour_vertices=204 parse_errors=0
+  z11/1125/747 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
+  z12/2251/1495 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
+  z13/4502/2991 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
+  z14/9004/5982 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
+
+## synthetic: CONTROL --drop-rate=1
+file: dist/synthetic_contours_droprate1.pmtiles
+size: 4151 bytes
+zoom: 11-14
+contours tilestats: count=8 geometry=LineString
+strategies: [{},{},{},{},{},{},{},{},{},{},{},{"dropped_by_rate":1},{"dropped_by_rate":2},{"dropped_by_rate":4},{"dropped_by_rate":8}]
+generator: tippecanoe v2.49.0
+generator_options: tippecanoe '--output=dist/synthetic_contours_droprate1.pmtiles' '--layer=contours' '--minimum-zoom=11' '--maximum-zoom=14' '--simplification=10' --no-feature-limit --no-tile-size-limit '--drop-rate=1' --force /tmp/synthetic.geojsonl
+actual tile data: entries=37 tiles=37 contour_tiles=37 contour_features=37 contour_line_parts=37 contour_vertices=204 parse_errors=0
+  z11/1125/747 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
+  z12/2251/1495 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
+  z13/4502/2991 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
+  z14/9004/5982 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
+
