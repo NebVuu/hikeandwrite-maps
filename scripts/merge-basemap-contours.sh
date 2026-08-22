@@ -76,6 +76,25 @@ join_args=()
 for layer in "${keep_layers[@]}"; do join_args+=(-l "$layer"); done
 for attribute in "${drop_attributes[@]}"; do join_args+=(-x "$attribute"); done
 
+# `tile-join` "doesn't have any of tippecanoe's recourses if the new tiles
+# are bigger than the 500K tile limit" (its own README) — it just leaves an
+# oversized tile out of the output entirely, whole tile, not a per-feature
+# thinning. This step never passed `-pk`/`--no-tile-size-limit`, only the
+# tippecanoe call that builds the contours-only file did (as
+# `--no-tile-size-limit`/`--no-feature-limit`, which don't apply here at
+# all — tile-join has its own separate flag parser).
+#
+# 22.08.2026: confirmed this is where the contour drop actually happens, by
+# diagnosing both sides of this exact step on a real build. The
+# contours-only tippecanoe output for one region held 824,949 kept features
+# (dense, healthy); the merged output right after this tile-join call held
+# 38,501 — a 95% loss introduced by this step alone, with the merged file's
+# own `strategies` metadata an unchanged copy of the pre-merge file's (proof
+# tile-join doesn't even recompute that accounting; it was never describing
+# what tile-join itself does, only reporting what already happened before
+# it ran).
+join_args+=(--no-tile-size-limit)
+
 basemap_bytes=$(stat -c%s "$basemap_path" 2>/dev/null || stat -f%z "$basemap_path")
 contours_bytes=$(stat -c%s "$contours_path" 2>/dev/null || stat -f%z "$contours_path")
 

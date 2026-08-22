@@ -1,6 +1,0 @@
-## me: contours-only (pre tile-join)
-(missing: dist/me_contours.pmtiles)
-
-## me: merged (post tile-join)
-(missing: dist/me.pmtiles)
-
