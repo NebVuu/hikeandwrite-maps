@@ -64,3 +64,103 @@ actual tile data: entries=30520 tiles=30520 contour_tiles=30520 contour_features
   z13/4502/2991 (43.6,17.85): contours=1  [contours=1]
   z14/9004/5982 (43.6,17.85): contours=1  [contours=1]
 
+## contour input: build/dem/BA/contours_tiered.geojsonl
+records=598756 malformed=0 missing_minzoom=0 invalid_minzoom=0 tiers: z11=75781 z12=52328 z13=223658 z14=246989
+## contour density near (43.7,18.27) at z11 tile 1127/747
+tile bounds: lon [18.10547, 18.28125] lat [43.58039, 43.70759]
+scanned 598756 input records, 1932 have a vertex inside this tile's bounds
+by tier: minzoom11=199 minzoom12=204 minzoom13=778 minzoom14=751
+sample elevations: 1680, 1610, 1660, 1670, 1680, 1680, 1860, 1570, 1620, 1670, 1980, 1490, 1630, 1660, 1670, 1670, 1680, 1820, 1900, 1500, 1650, 1660, 1670, 1680, 1830, 1840, 1890, 1900, 1940, 2050
+## contour density near (43.7,18.27) at z12 tile 2255/1494
+tile bounds: lon [18.19336, 18.28125] lat [43.64403, 43.70759]
+scanned 598756 input records, 580 have a vertex inside this tile's bounds
+by tier: minzoom11=56 minzoom12=64 minzoom13=239 minzoom14=221
+sample elevations: 1860, 1980, 1820, 1830, 1840, 1900, 2050, 1860, 1890, 1900, 2040, 1810, 1850, 1860, 1870, 2030, 1820, 1850, 1850, 1870, 1890, 1890, 1910, 1900, 1840, 1810, 1870, 1820, 1840, 1850
+## contour density near (43.7,18.27) at z14 tile 9023/5976
+tile bounds: lon [18.25928, 18.28125] lat [43.69171, 43.70759]
+scanned 598756 input records, 82 have a vertex inside this tile's bounds
+by tier: minzoom11=8 minzoom12=8 minzoom13=33 minzoom14=33
+sample elevations: 2020, 2030, 2010, 2000, 1990, 1980, 1960, 1970, 1950, 1940, 1670, 1920, 1930, 1900, 1910, 1890, 1880, 1860, 1870, 1850, 1560, 1840, 1660, 1650, 1640, 1830, 1630, 1620, 1680, 1670
+## contour density near (43.6,17.85) at z11 tile 1125/747
+tile bounds: lon [17.75391, 17.92969] lat [43.58039, 43.70759]
+scanned 598756 input records, 1342 have a vertex inside this tile's bounds
+by tier: minzoom11=139 minzoom12=132 minzoom13=564 minzoom14=507
+sample elevations: 460, 280, 460, 470, 1170, 1130, 930, 1130, 1150, 1160, 390, 1140, 260, 300, 460, 920, 1130, 350, 440, 910, 1130, 260, 380, 430, 1120, 370, 520, 1110, 300, 520
+## contour density near (43.6,17.85) at z12 tile 2251/1495
+tile bounds: lon [17.84180, 17.92969] lat [43.58039, 43.64403]
+scanned 598756 input records, 621 have a vertex inside this tile's bounds
+by tier: minzoom11=58 minzoom12=73 minzoom13=257 minzoom14=233
+sample elevations: 1230, 1230, 1240, 1050, 1220, 1390, 400, 1240, 1380, 1430, 430, 1230, 1440, 680, 1220, 1440, 900, 1430, 1080, 1420, 940, 950, 750, 930, 920, 1440, 910, 1430, 1140, 1430
+## contour density near (43.6,17.85) at z14 tile 9004/5982
+tile bounds: lon [17.84180, 17.86377] lat [43.59631, 43.61222]
+scanned 598756 input records, 126 have a vertex inside this tile's bounds
+by tier: minzoom11=11 minzoom12=13 minzoom13=51 minzoom14=51
+sample elevations: 1140, 1130, 740, 730, 1670, 1650, 1660, 1650, 1630, 1640, 1630, 1320, 1320, 1320, 1390, 1310, 1750, 1760, 1740, 1720, 1730, 1710, 1700, 1680, 1690, 1660, 1670, 1650, 1640, 1630
+## ba: contours after tippecanoe, before extract
+file: dist/BA_contours_before_extract.pmtiles
+size: 5919363 bytes
+zoom: 11-14
+contours tilestats: count=598756 geometry=LineString
+strategies: [{},{},{},{},{},{},{},{},{},{},{},{"dropped_by_rate":86596},{"dropped_by_rate":161236},{"dropped_by_rate":553073},{"dropped_by_rate":1359343}]
+generator: tippecanoe v2.49.0
+actual tile data: entries=30920 tiles=30920 contour_tiles=30920 contour_features=30920 parse_errors=0
+  z11/1127/747 (43.7,18.27): contours=1  [contours=1]
+  z12/2255/1494 (43.7,18.27): contours=1  [contours=1]
+  z13/4511/2988 (43.7,18.27): contours=1  [contours=1]
+  z14/9023/5976 (43.7,18.27): contours=1  [contours=1]
+  z11/1125/747 (43.6,17.85): contours=1  [contours=1]
+  z12/2251/1495 (43.6,17.85): contours=1  [contours=1]
+  z13/4502/2991 (43.6,17.85): contours=1  [contours=1]
+  z14/9004/5982 (43.6,17.85): contours=1  [contours=1]
+
+## ba: contours after extract, before tile-join
+file: dist/BA_contours.pmtiles
+size: 5885142 bytes
+zoom: 11-14
+contours tilestats: count=598756 geometry=LineString
+strategies: [{},{},{},{},{},{},{},{},{},{},{},{"dropped_by_rate":86596},{"dropped_by_rate":161236},{"dropped_by_rate":553073},{"dropped_by_rate":1359343}]
+generator: tippecanoe v2.49.0
+actual tile data: entries=30520 tiles=30520 contour_tiles=30520 contour_features=30520 parse_errors=0
+  z11/1127/747 (43.7,18.27): contours=1  [contours=1]
+  z12/2255/1494 (43.7,18.27): contours=1  [contours=1]
+  z13/4511/2988 (43.7,18.27): contours=1  [contours=1]
+  z14/9023/5976 (43.7,18.27): contours=1  [contours=1]
+  z11/1125/747 (43.6,17.85): contours=1  [contours=1]
+  z12/2251/1495 (43.6,17.85): contours=1  [contours=1]
+  z13/4502/2991 (43.6,17.85): contours=1  [contours=1]
+  z14/9004/5982 (43.6,17.85): contours=1  [contours=1]
+
+## ba: CONTROL A - simplification=1 instead of 10
+file: dist/BA_contours_simp1.pmtiles
+size: 6050588 bytes
+zoom: 11-14
+contours tilestats: count=598756 geometry=LineString
+strategies: [{},{},{},{},{},{},{},{},{},{},{},{"dropped_by_rate":86596},{"dropped_by_rate":161236},{"dropped_by_rate":553073},{"dropped_by_rate":1359343}]
+generator: tippecanoe v2.49.0
+actual tile data: entries=31068 tiles=31068 contour_tiles=31068 contour_features=31068 parse_errors=0
+  z11/1127/747 (43.7,18.27): contours=1  [contours=1]
+  z12/2255/1494 (43.7,18.27): contours=1  [contours=1]
+  z13/4511/2988 (43.7,18.27): contours=1  [contours=1]
+  z14/9023/5976 (43.7,18.27): contours=1  [contours=1]
+  z11/1125/747 (43.6,17.85): contours=1  [contours=1]
+  z12/2251/1495 (43.6,17.85): contours=1  [contours=1]
+  z13/4502/2991 (43.6,17.85): contours=1  [contours=1]
+  z14/9004/5982 (43.6,17.85): contours=1  [contours=1]
+
+## ba: CONTROL B - explicit --drop-rate=0 added
+file: dist/BA_contours_droprate0.pmtiles
+size: 5919419 bytes
+zoom: 11-14
+contours tilestats: count=598756 geometry=LineString
+strategies: [{},{},{},{},{},{},{},{},{},{},{},{"dropped_by_rate":86596},{"dropped_by_rate":161236},{"dropped_by_rate":553073},{"dropped_by_rate":1359343}]
+generator: tippecanoe v2.49.0
+actual tile data: entries=30920 tiles=30920 contour_tiles=30920 contour_features=30920 parse_errors=0
+  z11/1127/747 (43.7,18.27): contours=1  [contours=1]
+  z12/2255/1494 (43.7,18.27): contours=1  [contours=1]
+  z13/4511/2988 (43.7,18.27): contours=1  [contours=1]
+  z14/9023/5976 (43.7,18.27): contours=1  [contours=1]
+  z11/1125/747 (43.6,17.85): contours=1  [contours=1]
+  z12/2251/1495 (43.6,17.85): contours=1  [contours=1]
+  z13/4502/2991 (43.6,17.85): contours=1  [contours=1]
+  z14/9004/5982 (43.6,17.85): contours=1  [contours=1]
+
