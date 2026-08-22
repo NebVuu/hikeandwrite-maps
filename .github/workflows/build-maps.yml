@@ -8,7 +8,7 @@ on:
   # note the workflow file itself is included, since installing a different
   # tool version changes the output as surely as editing a script does.
   push:
-    branches: [main]
+    branches: [main, contour-investigation]
     paths:
       - 'scripts/**'
       - 'regions/**'
@@ -127,10 +127,43 @@ jobs:
           chmod +x scripts/build-contours.sh
           scripts/build-contours.sh "regions/${{ matrix.region }}.yml"
 
+      # INVESTIGATION ONLY (contour-investigation branch) — not part of the
+      # normal build, never runs on `main`. Checks the tippecanoe-built
+      # contours-only file BEFORE tile-join touches it, to see whether the
+      # feature drop reported in the published archive's tilestats
+      # (`strategies: [..., {"dropped_by_rate": N}, ...]`) is already present
+      # at this stage or only appears after merging. See
+      # scripts/diagnose-contours.js's own header comment for the full
+      # context.
+      - name: 'DIAGNOSTIC: contours-only file, before merge'
+        if: github.ref != 'refs/heads/main'
+        run: |
+          mkdir -p diagnostics
+          node scripts/diagnose-contours.js \
+            "dist/${{ matrix.region }}_contours.pmtiles" \
+            "${{ matrix.region }}: contours-only (pre tile-join)" \
+            "43.305,18.665" \
+            | tee -a "diagnostics/${{ matrix.region }}.txt"
+
       - name: Merge basemap + contours, drop unused layers
         run: |
           chmod +x scripts/merge-basemap-contours.sh
           scripts/merge-basemap-contours.sh "regions/${{ matrix.region }}.yml"
+
+      # INVESTIGATION ONLY — same file coordinate, after tile-join. If this
+      # shows the drop and the pre-merge step above didn't, tile-join is the
+      # cause (it has its own independent tile-size limit and does not
+      # accept tippecanoe's `-r`/`--no-*-limit` flags — see its README
+      # section). If both steps already show the drop, tile-join is
+      # innocent and it's tippecanoe's own contours-only build at fault.
+      - name: 'DIAGNOSTIC: merged file, after tile-join'
+        if: github.ref != 'refs/heads/main'
+        run: |
+          node scripts/diagnose-contours.js \
+            "dist/${{ matrix.region }}.pmtiles" \
+            "${{ matrix.region }}: merged (post tile-join)" \
+            "43.305,18.665" \
+            | tee -a "diagnostics/${{ matrix.region }}.txt"
 
       # Catches a build silently capped below what regions/<iso>.yml asked
       # for (see scripts/validate-maxzoom.sh's header comment for the
@@ -154,12 +187,44 @@ jobs:
           path: |
             dist/*.pmtiles
             build/boundaries/*.geojson
+            diagnostics/*.txt
           retention-days: 1
           if-no-files-found: error
+
+  # INVESTIGATION ONLY — never runs on `main`. Reading Actions job logs
+  # requires authentication even on a public repo (confirmed: the logs API
+  # returns 403 unauthenticated), so the diagnostic steps above write to a
+  # file instead of relying on anyone reading step output, and this job
+  # commits that file straight into the branch — plain `git fetch` then
+  # reads it, no token needed on the reading end.
+  diagnose-summary:
+    needs: region
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect diagnostic files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: region-*
+          merge-multiple: true
+          path: .
+
+      - name: Commit diagnostics to this branch
+        run: |
+          git config user.name 'build-maps diagnostics'
+          git config user.email 'actions@github.com'
+          git add diagnostics/
+          git commit -m "Diagnostic run for ${{ github.sha }}" || echo "nothing to commit"
+          git push origin HEAD:${{ github.ref_name }}
 
   publish:
     needs: region
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
     steps:
