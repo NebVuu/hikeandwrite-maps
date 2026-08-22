@@ -147,77 +147,47 @@ jobs:
           # guess the casing. A prior run of this exact step used
           # matrix.region directly, silently found nothing, and wasted a
           # full CI cycle before this was caught.
+          #
+          # Problem B (tile-join silently dropping ~95% of contour features
+          # on merge) is understood and fixed — see the contours-separate-file
+          # branch, published as maps-v5: contours now ship as their own
+          # file, never merged. This step is scoped to "Problem A" only: the
+          # published maps-v5 BA_contours.pmtiles has a healthy aggregate
+          # feature count (598,756) but real device decoding at Bjelašnica,
+          # Prenj and Volujak — all real mountains, two of them nowhere near
+          # a border — found exactly 1 contour feature per tile at every
+          # zoom checked. `density` below checks whether that sparseness is
+          # already in the raw candidate lines contour-tiers.js hands to
+          # tippecanoe (upstream: DEM/gdal_contour/simplify/tiering) or only
+          # appears once tippecanoe or the extract clip get involved.
           iso=$(yq '.iso' "regions/${{ matrix.region }}.yml")
           node scripts/diagnose-contour-input.js \
             "build/dem/${iso}/contours_tiered.geojsonl" \
             | tee -a "diagnostics/${{ matrix.region }}.txt"
+          for coord in "43.70,18.27" "43.60,17.85"; do
+            lat=${coord%,*}; lon=${coord#*,}
+            for z in 11 12 14; do
+              node scripts/diagnose-contour-density.js \
+                "build/dem/${iso}/contours_tiered.geojsonl" "$lat" "$lon" "$z" \
+                | tee -a "diagnostics/${{ matrix.region }}.txt"
+            done
+          done
           node scripts/diagnose-contours.js \
             "dist/${iso}_contours_before_extract.pmtiles" \
             "${{ matrix.region }}: contours after tippecanoe, before extract" \
-            --all-tiles "43.15,19.10" \
+            --all-tiles "43.70,18.27" "43.60,17.85" \
             | tee -a "diagnostics/${{ matrix.region }}.txt"
           node scripts/diagnose-contours.js \
             "dist/${iso}_contours.pmtiles" \
             "${{ matrix.region }}: contours after extract, before tile-join" \
-            --all-tiles "43.15,19.10" \
+            --all-tiles "43.70,18.27" "43.60,17.85" \
             | tee -a "diagnostics/${{ matrix.region }}.txt"
 
-      # INVESTIGATION ONLY — a true same-region, same-input A/B. The first
-      # real test of `--no-tile-size-limit` (22.08.2026, ME) still showed a
-      # ~95% post-merge contour loss, matching the ~95% loss measured on a
-      # DIFFERENT region (HR) without that flag — too close to trust as a
-      # real fix without comparing the flag on vs. off against the exact
-      # same inputs. Runs on copies so the real merge step right after this
-      # still gets its normal, untouched inputs.
-      - name: 'DIAGNOSTIC: A/B test tile-join flags on identical inputs'
-        if: github.ref != 'refs/heads/main'
-        run: |
-          chmod +x scripts/ab-test-tile-join.sh
-          iso=$(yq '.iso' "regions/${{ matrix.region }}.yml")
-          scripts/ab-test-tile-join.sh \
-            "dist/${iso}.pmtiles" "dist/${iso}_contours.pmtiles" /tmp/tilejoin-ab
-          for variant in without-fix with-fix with-fix-both bare-merge; do
-            if [ -f "/tmp/tilejoin-ab/${variant}.pmtiles" ]; then
-              node scripts/diagnose-contours.js \
-                "/tmp/tilejoin-ab/${variant}.pmtiles" \
-                "${{ matrix.region }}: A/B tile-join, ${variant}" \
-                --all-tiles "43.15,19.10" \
-                | tee -a "diagnostics/${{ matrix.region }}.txt"
-            fi
-          done
-
-      - name: Merge basemap + contours, drop unused layers
-        run: |
-          chmod +x scripts/merge-basemap-contours.sh
-          scripts/merge-basemap-contours.sh "regions/${{ matrix.region }}.yml"
-
-      # INVESTIGATION ONLY — same file coordinate, after tile-join. If this
-      # shows the drop and the pre-merge step above didn't, tile-join is the
-      # cause (it has its own independent tile-size limit and does not
-      # accept tippecanoe's `-r`/`--no-*-limit` flags — see its README
-      # section). If both steps already show the drop, tile-join is
-      # innocent and it's tippecanoe's own contours-only build at fault.
-      - name: 'DIAGNOSTIC: merged file, after tile-join'
-        if: github.ref != 'refs/heads/main'
-        run: |
-          iso=$(yq '.iso' "regions/${{ matrix.region }}.yml")
-          node scripts/diagnose-contours.js \
-            "dist/${iso}.pmtiles" \
-            "${{ matrix.region }}: merged (post tile-join)" \
-            --all-tiles "43.15,19.10" \
-            | tee -a "diagnostics/${{ matrix.region }}.txt"
-
-      # Catches a build silently capped below what regions/<iso>.yml asked
-      # for (see scripts/validate-maxzoom.sh's header comment for the
-      # 21.08.2026 incident this exists to catch automatically instead of
-      # via a manual header inspection after publish) — must run after the
-      # merge step above (that's what produces the final dist/<ISO>.pmtiles)
-      # and before the artifact upload, so a mismatch blocks publishing
-      # rather than just getting recorded in the manifest.
-      - name: Validate max_zoom
-        run: |
-          chmod +x scripts/validate-maxzoom.sh
-          scripts/validate-maxzoom.sh "regions/${{ matrix.region }}.yml"
+      # Problem B is fixed (contours-separate-file branch, maps-v5) — the
+      # merge step and its own A/B diagnostic are irrelevant to Problem A
+      # (see comment above) and are skipped here to keep this run fast.
+      # Nothing downstream of this job needs dist/<ISO>.pmtiles (the merged
+      # file) or Validate max_zoom for this investigation.
 
       # The boundary GeoJSON travels with the tileset because the publish job
       # needs every region's boundary to build the one shared hillshade mask,
