@@ -123,6 +123,8 @@ jobs:
         # Contour lines from Copernicus GLO-30. Needs build-region.sh to have
         # run first for this region: it produces both the boundary GeoJSON and
         # the tile mask this step's `gdalwarp -cutline` uses.
+        env:
+          CONTOUR_DIAGNOSTICS: ${{ github.ref != 'refs/heads/main' && '1' || '0' }}
         run: |
           chmod +x scripts/build-contours.sh
           scripts/build-contours.sh "regions/${{ matrix.region }}.yml"
@@ -146,10 +148,18 @@ jobs:
           # matrix.region directly, silently found nothing, and wasted a
           # full CI cycle before this was caught.
           iso=$(yq '.iso' "regions/${{ matrix.region }}.yml")
+          node scripts/diagnose-contour-input.js \
+            "build/dem/${iso}/contours_tiered.geojsonl" \
+            | tee -a "diagnostics/${{ matrix.region }}.txt"
+          node scripts/diagnose-contours.js \
+            "dist/${iso}_contours_before_extract.pmtiles" \
+            "${{ matrix.region }}: contours after tippecanoe, before extract" \
+            --all-tiles "43.15,19.10" \
+            | tee -a "diagnostics/${{ matrix.region }}.txt"
           node scripts/diagnose-contours.js \
             "dist/${iso}_contours.pmtiles" \
-            "${{ matrix.region }}: contours-only (pre tile-join)" \
-            "43.305,18.665" \
+            "${{ matrix.region }}: contours after extract, before tile-join" \
+            --all-tiles "43.15,19.10" \
             | tee -a "diagnostics/${{ matrix.region }}.txt"
 
       # INVESTIGATION ONLY — a true same-region, same-input A/B. The first
@@ -171,7 +181,7 @@ jobs:
               node scripts/diagnose-contours.js \
                 "/tmp/tilejoin-ab/${variant}.pmtiles" \
                 "${{ matrix.region }}: A/B tile-join, ${variant}" \
-                "43.305,18.665" \
+                --all-tiles "43.15,19.10" \
                 | tee -a "diagnostics/${{ matrix.region }}.txt"
             fi
           done
@@ -194,7 +204,7 @@ jobs:
           node scripts/diagnose-contours.js \
             "dist/${iso}.pmtiles" \
             "${{ matrix.region }}: merged (post tile-join)" \
-            "43.305,18.665" \
+            --all-tiles "43.15,19.10" \
             | tee -a "diagnostics/${{ matrix.region }}.txt"
 
       # Catches a build silently capped below what regions/<iso>.yml asked

@@ -232,7 +232,78 @@ function readMetadata(fileBuffer, header) {
   return JSON.parse(buf.toString());
 }
 
-const [filePath, label, ...coordArgs] = process.argv.slice(2);
+// Counts MVT features actually stored in all tile entries. `tilestats.count`
+// is unsuitable here: tippecanoe fills it while reading source GeoJSON and
+// tile-join fills it before it decides whether to write the output tile.
+function countAllContourFeatures(fileBuffer, header) {
+  const rootDirOffset = Number(header.readBigUInt64LE(8));
+  const rootDirLength = Number(header.readBigUInt64LE(16));
+  const leafDirOffset = Number(header.readBigUInt64LE(40));
+  const tileDataOffset = Number(header.readBigUInt64LE(56));
+  const internalCompression = header[97];
+  const tileCompression = header[98];
+  const decompressDirectory = (buf) =>
+    internalCompression === 2 ? zlib.gunzipSync(buf) : buf;
+  const root = readDirectory(
+    decompressDirectory(
+      fileBuffer.subarray(rootDirOffset, rootDirOffset + rootDirLength),
+    ),
+  );
+
+  const entries = [];
+  for (const entry of root) {
+    if (entry.runLength !== 0) {
+      entries.push(entry);
+      continue;
+    }
+    const leaf = readDirectory(
+      decompressDirectory(
+        fileBuffer.subarray(
+          leafDirOffset + entry.offset,
+          leafDirOffset + entry.offset + entry.length,
+        ),
+      ),
+    );
+    for (const leafEntry of leaf) {
+      if (leafEntry.runLength === 0) {
+        throw new Error('unexpected nested PMTiles leaf directory');
+      }
+      entries.push(leafEntry);
+    }
+  }
+
+  let tileOccurrences = 0;
+  let contourTileOccurrences = 0;
+  let contourFeatureOccurrences = 0;
+  let parseErrors = 0;
+  for (const entry of entries) {
+    const occurrences = entry.runLength;
+    tileOccurrences += occurrences;
+    let tileBuf = fileBuffer.subarray(
+      tileDataOffset + entry.offset,
+      tileDataOffset + entry.offset + entry.length,
+    );
+    if (tileCompression === 2) tileBuf = zlib.gunzipSync(tileBuf);
+    const {layers, error} = countFeaturesPerLayer(tileBuf);
+    if (error) parseErrors += occurrences;
+    const contours = layers.contours || 0;
+    if (contours > 0) {
+      contourTileOccurrences += occurrences;
+      contourFeatureOccurrences += contours * occurrences;
+    }
+  }
+  return {
+    tileEntries: entries.length,
+    tileOccurrences,
+    contourTileOccurrences,
+    contourFeatureOccurrences,
+    parseErrors,
+  };
+}
+
+const [filePath, label, ...rawArgs] = process.argv.slice(2);
+const countAllTiles = rawArgs.includes('--all-tiles');
+const coordArgs = rawArgs.filter((arg) => arg !== '--all-tiles');
 if (!filePath || !label) {
   console.error(
     'Usage: node diagnose-contours.js <path.pmtiles> <label> [lat,lon ...]',
@@ -275,6 +346,21 @@ try {
   lines.push(`generator: ${metadata.generator || '?'}`);
 } catch (e) {
   lines.push(`metadata read failed: ${e.message}`);
+}
+
+if (countAllTiles) {
+  try {
+    const counts = countAllContourFeatures(fileBuffer, header);
+    lines.push(
+      'actual tile data: ' +
+        `entries=${counts.tileEntries} tiles=${counts.tileOccurrences} ` +
+        `contour_tiles=${counts.contourTileOccurrences} ` +
+        `contour_features=${counts.contourFeatureOccurrences} ` +
+        `parse_errors=${counts.parseErrors}`,
+    );
+  } catch (e) {
+    lines.push(`actual tile-data count failed: ${e.message}`);
+  }
 }
 
 // Default sample coordinates: Volujak summit area (the exact spot a device

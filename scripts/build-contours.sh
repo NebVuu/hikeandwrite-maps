@@ -161,6 +161,13 @@ tippecanoe \
   --force \
   "$tiered_geojson"
 
+# Investigation-only checkpoint. The extract below replaces this file, so a
+# separate copy is required to distinguish tiling loss from extract loss.
+if [ "${CONTOUR_DIAGNOSTICS:-0}" = "1" ]; then
+  cp "$dist_dir/${iso}_contours.pmtiles" \
+    "$dist_dir/${iso}_contours_before_extract.pmtiles"
+fi
+
 # The cutline above already keeps contour *lines* inside the mask, but
 # tippecanoe still writes whichever tiles those lines touch, so the tileset's
 # own bounds can reach a little past it. Clipping the tiles too keeps this
