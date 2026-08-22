@@ -152,6 +152,30 @@ jobs:
             "43.305,18.665" \
             | tee -a "diagnostics/${{ matrix.region }}.txt"
 
+      # INVESTIGATION ONLY — a true same-region, same-input A/B. The first
+      # real test of `--no-tile-size-limit` (22.08.2026, ME) still showed a
+      # ~95% post-merge contour loss, matching the ~95% loss measured on a
+      # DIFFERENT region (HR) without that flag — too close to trust as a
+      # real fix without comparing the flag on vs. off against the exact
+      # same inputs. Runs on copies so the real merge step right after this
+      # still gets its normal, untouched inputs.
+      - name: 'DIAGNOSTIC: A/B test tile-join flags on identical inputs'
+        if: github.ref != 'refs/heads/main'
+        run: |
+          chmod +x scripts/ab-test-tile-join.sh
+          iso=$(yq '.iso' "regions/${{ matrix.region }}.yml")
+          scripts/ab-test-tile-join.sh \
+            "dist/${iso}.pmtiles" "dist/${iso}_contours.pmtiles" /tmp/tilejoin-ab
+          for variant in without-fix with-fix with-fix-both; do
+            if [ -f "/tmp/tilejoin-ab/${variant}.pmtiles" ]; then
+              node scripts/diagnose-contours.js \
+                "/tmp/tilejoin-ab/${variant}.pmtiles" \
+                "${{ matrix.region }}: A/B tile-join, ${variant}" \
+                "43.305,18.665" \
+                | tee -a "diagnostics/${{ matrix.region }}.txt"
+            fi
+          done
+
       - name: Merge basemap + contours, drop unused layers
         run: |
           chmod +x scripts/merge-basemap-contours.sh
