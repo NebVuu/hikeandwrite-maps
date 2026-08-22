@@ -308,12 +308,25 @@ jobs:
             | tee -a diagnostics/synthetic.txt
 
       - name: Commit synthetic diagnostic to this branch
+        # Retries with a rebase on push rejection — this job commits
+        # independently of (and usually faster than) diagnose-summary, so a
+        # push race between the two landing around the same time is
+        # expected occasionally, not exceptional (confirmed 22.08.2026: hit
+        # on the very first run after diagnose-summary got its own retry
+        # loop added below).
         run: |
           git config user.name 'build-maps diagnostics'
           git config user.email 'actions@github.com'
           git add diagnostics/synthetic.txt
           git commit -m "Synthetic tippecanoe repro for ${{ github.sha }}" || echo "nothing to commit"
-          git push origin HEAD:${{ github.ref_name }}
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:${{ github.ref_name }}; then
+              break
+            fi
+            echo "push rejected, rebasing and retrying ($attempt/5)"
+            git fetch origin ${{ github.ref_name }}
+            git rebase origin/${{ github.ref_name }}
+          done
 
   # INVESTIGATION ONLY — never runs on `main`. Reading Actions job logs
   # requires authentication even on a public repo (confirmed: the logs API
@@ -338,12 +351,24 @@ jobs:
           path: .
 
       - name: Commit diagnostics to this branch
+        # Retries with a rebase on push rejection — synthetic-tippecanoe-test
+        # commits to the same branch independently and usually finishes
+        # first, so a race here is expected occasionally (confirmed
+        # 22.08.2026: this exact step failed on the 85639d6 run for exactly
+        # this reason, losing the real-BA fix-verification diagnostic).
         run: |
           git config user.name 'build-maps diagnostics'
           git config user.email 'actions@github.com'
           git add diagnostics/
           git commit -m "Diagnostic run for ${{ github.sha }}" || echo "nothing to commit"
-          git push origin HEAD:${{ github.ref_name }}
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:${{ github.ref_name }}; then
+              break
+            fi
+            echo "push rejected, rebasing and retrying ($attempt/5)"
+            git fetch origin ${{ github.ref_name }}
+            git rebase origin/${{ github.ref_name }}
+          done
 
   publish:
     needs: region
