@@ -213,6 +213,74 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # INVESTIGATION ONLY — never runs on `main`. A controlled, minimal
+  # reproduction for Problem A: a handful of clean, hand-built lines
+  # (scripts/generate-synthetic-contours.js) instead of BA's real
+  # 598,756-feature dataset, run through the exact same tippecanoe
+  # invocation used in build-contours.sh. Needs no DEM download, no
+  # gdal_contour, no build-region.sh — just tippecanoe itself — so it
+  # finishes in ~2 minutes instead of the region job's ~15-20. If this
+  # still collapses to ~1 feature/tile, that's a minimal, reportable
+  # tippecanoe defect independent of scale or content; if it comes through
+  # correctly (feature count growing with zoom, as per-feature minzoom
+  # should produce), the bug is specific to something about the real
+  # dataset instead.
+  synthetic-tippecanoe-test:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Commits its own diagnostics/synthetic.txt directly (like
+    # diagnose-summary does for the region matrix) instead of going through
+    # an artifact + the shared summary job — deliberately independent of
+    # the `region` job so this result lands in ~2-3 minutes without waiting
+    # on BA's ~15-20 minute full rebuild.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install tippecanoe
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tippecanoe
+
+      - name: Generate synthetic input and run tippecanoe
+        run: |
+          mkdir -p dist diagnostics
+          node scripts/generate-synthetic-contours.js > /tmp/synthetic.geojsonl
+          tippecanoe \
+            --output=dist/synthetic_contours.pmtiles \
+            --layer=contours \
+            --minimum-zoom=11 \
+            --maximum-zoom=14 \
+            --simplification=10 \
+            --no-feature-limit \
+            --no-tile-size-limit \
+            --force \
+            /tmp/synthetic.geojsonl
+
+      - name: 'DIAGNOSTIC: decode synthetic tiles'
+        run: |
+          node scripts/diagnose-contours.js \
+            dist/synthetic_contours.pmtiles "synthetic: 8 hand-built lines, 2 per tier" \
+            --all-tiles 43.6,17.85 \
+            | tee -a diagnostics/synthetic.txt
+
+      - name: Commit synthetic diagnostic to this branch
+        run: |
+          git config user.name 'build-maps diagnostics'
+          git config user.email 'actions@github.com'
+          git add diagnostics/synthetic.txt
+          git commit -m "Synthetic tippecanoe repro for ${{ github.sha }}" || echo "nothing to commit"
+          git push origin HEAD:${{ github.ref_name }}
+
   # INVESTIGATION ONLY — never runs on `main`. Reading Actions job logs
   # requires authentication even on a public repo (confirmed: the logs API
   # returns 403 unauthenticated), so the diagnostic steps above write to a
