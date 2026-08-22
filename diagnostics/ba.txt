@@ -268,3 +268,20 @@ actual tile data: entries=30920 tiles=30920 contour_tiles=30920 contour_features
   z13/4502/2991 (43.6,17.85): contours=1 lineParts=1 vertices=20  [contours=1]
   z14/9004/5982 (43.6,17.85): contours=1 lineParts=1 vertices=20  [contours=1]
 
+## ba: contours after extract (fixed pipeline)
+file: dist/BA_contours.pmtiles
+size: 123246174 bytes
+zoom: 11-14
+contours tilestats: count=2002007 geometry=LineString
+generator: tile-join v2.49.0
+generator_options: tippecanoe '--output=/home/runner/work/hikeandwrite-maps/hikeandwrite-maps/build/dem/BA/contours_tier12.pmtiles' '--layer=contours' '--minimum-zoom=12' '--maximum-zoom=14' '--simplification=10' --no-feature-limit --no-tile-size-limit --force /home/runner/work/hikeandwrite-maps/hikeandwrite-maps/build/dem/BA/contours_tiered_12.geojsonl; tippecanoe '--output=/home/runner/work/hikeandwrite-maps/hikeandwrite-maps/build/dem/BA/contours_tier13.pmtiles' '--layer=contours' '--minimum-zoom=13' '--maximum-zoom=14' '--simplification=10' --no-feature-limit --no-tile-size-limit --force /home/runner/work/hikeandwrite-maps/hikeandwrite-maps/build/dem/BA/contours_tiered_13.geojsonl; tippecanoe '--output=/home/runner/work/hikeandwrite-maps/hikeandwrite-maps/build/dem/BA/contours_tier11.pmtiles' '--layer=contours' '--minimum-zoom=11' '--maximum-zoom=14' '--simplification=10' --no-feature-limit --no-tile-size-limit --force /home/runner/work/hikeandwrite-maps/hikeandwrite-maps/build/dem/BA/contours_tiered_11.geojsonl; tippecanoe '--output=/home/runner/work/hikeandwrite-maps/hikeandwrite-maps/build/dem/BA/contours_tier14.pmtiles' '--layer=contours' '--minimum-zoom=14' '--maximum-zoom=14' '--simplification=10' --no-feature-limit --no-tile-size-limit --force /home/runner/work/hikeandwrite-maps/hikeandwrite-maps/build/dem/BA/contours_tiered_14.geojsonl; tile-join '--output=/home/runner/work/hikeandwrite-maps/hikeandwrite-maps/dist/BA_contours.pmtiles' --force /home/runner/work/hikeandwrite-maps/hikeandwrite-maps/build/dem/BA/contours_tier11.pmtiles /home/runner/work/hikeandwrite-maps/hikeandwrite-maps/build/dem/BA/contours_tier12.pmtiles /home/runner/work/hikeandwrite-maps/hikeandwrite-maps/build/dem/BA/contours_tier13.pmtiles /home/runner/work/hikeandwrite-maps/hikeandwrite-maps/build/dem/BA/contours_tier14.pmtiles
+actual tile data: entries=30682 tiles=30682 contour_tiles=30682 contour_features=1996432 contour_line_parts=2876242 contour_vertices=33394009 parse_errors=0
+  z11/1130/750 (43.305,18.665): contours=191 lineParts=239 vertices=4769  [contours=191]
+  z12/2260/1500 (43.305,18.665): contours=100 lineParts=148 vertices=4123  [contours=100]
+  z13/4520/3000 (43.305,18.665): contours=153 lineParts=242 vertices=4083  [contours=153]
+  z14/9041/6001 (43.305,18.665): contours=128 lineParts=175 vertices=1994  [contours=128]
+  z11/1125/747 (43.6,17.85): contours=108 lineParts=178 vertices=5053  [contours=108]
+  z12/2251/1495 (43.6,17.85): contours=116 lineParts=178 vertices=4149  [contours=116]
+  z13/4502/2991 (43.6,17.85): contours=177 lineParts=243 vertices=3674  [contours=177]
+  z14/9004/5982 (43.6,17.85): contours=128 lineParts=178 vertices=1985  [contours=128]
+
