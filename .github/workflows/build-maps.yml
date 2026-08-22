@@ -166,7 +166,7 @@ jobs:
           iso=$(yq '.iso' "regions/${{ matrix.region }}.yml")
           scripts/ab-test-tile-join.sh \
             "dist/${iso}.pmtiles" "dist/${iso}_contours.pmtiles" /tmp/tilejoin-ab
-          for variant in without-fix with-fix with-fix-both; do
+          for variant in without-fix with-fix with-fix-both bare-merge; do
             if [ -f "/tmp/tilejoin-ab/${variant}.pmtiles" ]; then
               node scripts/diagnose-contours.js \
                 "/tmp/tilejoin-ab/${variant}.pmtiles" \

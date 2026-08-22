@@ -58,3 +58,16 @@ tile-join -f -o "$output_dir/with-fix-both.pmtiles" "${join_args[@]}" \
   --no-tile-size-limit --no-feature-limit \
   "$basemap_path" "$contours_path" \
   || echo "  (failed, exit $? — --no-feature-limit may not be a real tile-join flag)"
+
+# 22.08.2026: the first two variants above came back IDENTICAL (same
+# feature count, byte size within 2 bytes) — `--no-tile-size-limit` changes
+# nothing. So the ~95% contour loss during merge isn't the byte-size-limit
+# mechanism at all. Next question: is it the `-l`/`-x` layer/attribute
+# filtering we pass, or something inherent to tile-join's merge regardless
+# of flags? A bare merge with no filtering at all answers that in one
+# step — if this ALSO collapses to the same reduced count, the loss is
+# structural to tile-join's merge itself, not caused by anything this
+# pipeline is asking it to do.
+echo "== A/B: bare merge, no -l/-x filtering at all =="
+tile-join -f -o "$output_dir/bare-merge.pmtiles" \
+  "$basemap_path" "$contours_path"
