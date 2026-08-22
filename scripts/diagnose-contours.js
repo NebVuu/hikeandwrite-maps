@@ -123,9 +123,77 @@ function latToTileY(lat, zoom) {
   return Math.floor(((1 - mercator / Math.PI) / 2) * 2 ** zoom);
 }
 
+// Zigzag-decodes a Vector Tile geometry command parameter back to a signed
+// delta. Spec: https://github.com/mapbox/vector-tile-spec/tree/master/2.1
+function zigzag(n) {
+  return (n >>> 1) ^ -(n & 1);
+}
+
+// Decodes a Feature submessage's `geometry` field (field 4, a packed varint
+// command stream) and counts MoveTo commands (each starts a new line part —
+// so for a LineString/MultiLineString this is "how many separate lines does
+// this one feature actually draw") and total vertices consumed. This is the
+// piece the investigation was missing: feature *count* alone can't tell a
+// rich MultiLineString survivor apart from one whose geometry collapsed to
+// almost nothing — both show up as "1 feature".
+function decodeFeatureGeometry(featureBuf) {
+  const r = new Reader(featureBuf);
+  let moveToCount = 0;
+  let vertexCount = 0;
+  let geometryFound = false;
+  while (r.pos < featureBuf.length) {
+    const key = r.varint();
+    const field = key >> 3;
+    const wireType = key & 7;
+    if (field === 4 && wireType === 2) {
+      geometryFound = true;
+      const length = r.varint();
+      const end = r.pos + length;
+      const gr = new Reader(featureBuf.subarray(r.pos, end));
+      r.pos = end;
+      while (gr.pos < gr.buf.length) {
+        const cmdInt = gr.varint();
+        const id = cmdInt & 0x7;
+        const count = cmdInt >> 3;
+        if (id === 1 || id === 2) {
+          // MoveTo (1) or LineTo (2): `count` (dx, dy) pairs follow.
+          if (id === 1) moveToCount += count;
+          for (let i = 0; i < count; i++) {
+            gr.varint();
+            gr.varint();
+            vertexCount++;
+          }
+        } else if (id === 7) {
+          // ClosePath: no parameters.
+        } else {
+          // Unrecognized command id — stop rather than misread the rest
+          // of the stream as garbage commands.
+          break;
+        }
+      }
+    } else if (wireType === 2) {
+      const length = r.varint();
+      r.pos += length;
+    } else if (wireType === 0) {
+      r.varint();
+    } else if (wireType === 5) {
+      r.pos += 4;
+    } else if (wireType === 1) {
+      r.pos += 8;
+    } else {
+      throw new Error(`unknown wire type ${wireType} in feature`);
+    }
+  }
+  return {moveToCount, vertexCount, geometryFound};
+}
+
 /// Counts features per layer name in a decompressed MVT tile buffer, and
 /// reports a parse error rather than throwing past it — a malformed tile is
 /// exactly the kind of thing this tool needs to surface, not crash on.
+/// Per layer, also decodes every feature's geometry (see
+/// decodeFeatureGeometry) so a caller can tell "1 rich multi-part feature"
+/// from "1 feature whose geometry is degenerate" — both used to look
+/// identical when this only counted Feature submessage occurrences.
 function countFeaturesPerLayer(tileBuffer) {
   const layers = {};
   let error = null;
@@ -143,6 +211,8 @@ function countFeaturesPerLayer(tileBuffer) {
         const lr = new Reader(layerBuf);
         let name = '?';
         let features = 0;
+        let lineParts = 0;
+        let vertices = 0;
         while (lr.pos < layerBuf.length) {
           const k2 = lr.varint();
           const f2 = k2 >> 3;
@@ -153,8 +223,12 @@ function countFeaturesPerLayer(tileBuffer) {
             lr.pos += l;
           } else if (f2 === 2 && w2 === 2) {
             const l = lr.varint();
+            const featureBuf = layerBuf.subarray(lr.pos, lr.pos + l);
             lr.pos += l;
             features++;
+            const decoded = decodeFeatureGeometry(featureBuf);
+            lineParts += decoded.moveToCount;
+            vertices += decoded.vertexCount;
           } else if (w2 === 2) {
             const l = lr.varint();
             lr.pos += l;
@@ -168,7 +242,7 @@ function countFeaturesPerLayer(tileBuffer) {
             throw new Error(`unknown wire type ${w2} in layer`);
           }
         }
-        layers[name] = features;
+        layers[name] = {features, lineParts, vertices};
       } else if (wireType === 2) {
         const l = r.varint();
         r.pos += l;
@@ -275,6 +349,8 @@ function countAllContourFeatures(fileBuffer, header) {
   let tileOccurrences = 0;
   let contourTileOccurrences = 0;
   let contourFeatureOccurrences = 0;
+  let contourLinePartOccurrences = 0;
+  let contourVertexOccurrences = 0;
   let parseErrors = 0;
   for (const entry of entries) {
     const occurrences = entry.runLength;
@@ -286,10 +362,12 @@ function countAllContourFeatures(fileBuffer, header) {
     if (tileCompression === 2) tileBuf = zlib.gunzipSync(tileBuf);
     const {layers, error} = countFeaturesPerLayer(tileBuf);
     if (error) parseErrors += occurrences;
-    const contours = layers.contours || 0;
-    if (contours > 0) {
+    const contours = layers.contours;
+    if (contours && contours.features > 0) {
       contourTileOccurrences += occurrences;
-      contourFeatureOccurrences += contours * occurrences;
+      contourFeatureOccurrences += contours.features * occurrences;
+      contourLinePartOccurrences += contours.lineParts * occurrences;
+      contourVertexOccurrences += contours.vertices * occurrences;
     }
   }
   return {
@@ -297,6 +375,8 @@ function countAllContourFeatures(fileBuffer, header) {
     tileOccurrences,
     contourTileOccurrences,
     contourFeatureOccurrences,
+    contourLinePartOccurrences,
+    contourVertexOccurrences,
     parseErrors,
   };
 }
@@ -344,6 +424,13 @@ try {
     lines.push(`strategies: ${JSON.stringify(metadata.strategies)}`);
   }
   lines.push(`generator: ${metadata.generator || '?'}`);
+  // The actual CLI flags tippecanoe recorded it ran with — never printed
+  // before now. Confirms (or refutes) that --no-feature-limit and
+  // --no-tile-size-limit really reached this specific contours-only build,
+  // rather than being silently dropped or overridden somewhere upstream.
+  lines.push(
+    `generator_options: ${metadata.generator_options || '(not present in metadata)'}`,
+  );
 } catch (e) {
   lines.push(`metadata read failed: ${e.message}`);
 }
@@ -356,6 +443,8 @@ if (countAllTiles) {
         `entries=${counts.tileEntries} tiles=${counts.tileOccurrences} ` +
         `contour_tiles=${counts.contourTileOccurrences} ` +
         `contour_features=${counts.contourFeatureOccurrences} ` +
+        `contour_line_parts=${counts.contourLinePartOccurrences} ` +
+        `contour_vertices=${counts.contourVertexOccurrences} ` +
         `parse_errors=${counts.parseErrors}`,
     );
   } catch (e) {
@@ -381,12 +470,16 @@ for (const [lat, lon] of coords) {
       continue;
     }
     const {layers, error} = countFeaturesPerLayer(tileBuf);
-    const contourCount = layers.contours ?? 0;
+    const contourInfo = layers.contours;
+    const contourCount = contourInfo ? contourInfo.features : 0;
+    const contourDetail = contourInfo
+      ? ` lineParts=${contourInfo.lineParts} vertices=${contourInfo.vertices}`
+      : '';
     const allLayers = Object.entries(layers)
-      .map(([k, v]) => `${k}=${v}`)
+      .map(([k, v]) => `${k}=${v.features}`)
       .join(' ');
     lines.push(
-      `  z${zoom}/${x}/${y} (${lat},${lon}): contours=${contourCount}` +
+      `  z${zoom}/${x}/${y} (${lat},${lon}): contours=${contourCount}${contourDetail}` +
         (error ? `  !! PARSE ERROR: ${error}` : `  [${allLayers}]`),
     );
   }
