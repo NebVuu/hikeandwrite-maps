@@ -182,6 +182,16 @@ jobs:
             "${{ matrix.region }}: contours after extract, before tile-join" \
             --all-tiles "43.70,18.27" "43.60,17.85" \
             | tee -a "diagnostics/${{ matrix.region }}.txt"
+          node scripts/diagnose-contours.js \
+            "dist/${iso}_contours_simp1.pmtiles" \
+            "${{ matrix.region }}: CONTROL A - simplification=1 instead of 10" \
+            --all-tiles "43.70,18.27" "43.60,17.85" \
+            | tee -a "diagnostics/${{ matrix.region }}.txt"
+          node scripts/diagnose-contours.js \
+            "dist/${iso}_contours_droprate0.pmtiles" \
+            "${{ matrix.region }}: CONTROL B - explicit --drop-rate=0 added" \
+            --all-tiles "43.70,18.27" "43.60,17.85" \
+            | tee -a "diagnostics/${{ matrix.region }}.txt"
 
       # Problem B is fixed (contours-separate-file branch, maps-v5) — the
       # merge step and its own A/B diagnostic are irrelevant to Problem A

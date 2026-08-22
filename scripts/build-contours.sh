@@ -166,6 +166,45 @@ tippecanoe \
 if [ "${CONTOUR_DIAGNOSTICS:-0}" = "1" ]; then
   cp "$dist_dir/${iso}_contours.pmtiles" \
     "$dist_dir/${iso}_contours_before_extract.pmtiles"
+
+  # Problem A control experiment: the production build above already shows
+  # ~598,756 candidate features collapsing to ~30,920 written features
+  # (confirmed 22.08.2026, real device + CI decode) inside this exact
+  # tippecanoe call, with no tile-join or extract involved at all. Two
+  # independent variables, tested against the identical input so the result
+  # isolates one from the other:
+  #   simp1      - only change: --simplification=10 -> 1 (tippecanoe's own
+  #                "smallest amount generally safe" default). Tests whether
+  #                10x simplification is collapsing tile-clipped line
+  #                segments down to degenerate (too-short) geometry that
+  #                tippecanoe then drops.
+  #   droprate0  - only change: adds --drop-rate=0. Source review of
+  #                felt/tippecanoe's calc_feature_minzoom gates rate-based
+  #                dropping on point features, or lines only with -al/
+  #                --drop-lines (not passed here) — so this should be a
+  #                no-op if that reading is right. Cheap to verify directly
+  #                rather than trust the reading a second time.
+  tippecanoe \
+    --output="$dist_dir/${iso}_contours_simp1.pmtiles" \
+    --layer=contours \
+    --minimum-zoom=11 \
+    --maximum-zoom=14 \
+    --simplification=1 \
+    --no-feature-limit \
+    --no-tile-size-limit \
+    --force \
+    "$tiered_geojson"
+  tippecanoe \
+    --output="$dist_dir/${iso}_contours_droprate0.pmtiles" \
+    --layer=contours \
+    --minimum-zoom=11 \
+    --maximum-zoom=14 \
+    --simplification=10 \
+    --no-feature-limit \
+    --no-tile-size-limit \
+    --drop-rate=0 \
+    --force \
+    "$tiered_geojson"
 fi
 
 # The cutline above already keeps contour *lines* inside the mask, but
