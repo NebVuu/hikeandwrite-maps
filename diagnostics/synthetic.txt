@@ -215,3 +215,43 @@ actual tile data: entries=37 tiles=37 contour_tiles=37 contour_features=52 conto
   z13/4502/2991 (43.6,17.85): contours=3 lineParts=3 vertices=24  [contours=3]
   z14/9004/5982 (43.6,17.85): contours=4 lineParts=4 vertices=28  [contours=4]
 
+## synthetic: 8 hand-built lines, 2 per tier
+file: dist/synthetic_contours.pmtiles
+size: 4098 bytes
+zoom: 11-14
+contours tilestats: count=8 geometry=LineString
+strategies: [{},{},{},{},{},{},{},{},{},{},{},{"dropped_by_rate":1},{"dropped_by_rate":2},{"dropped_by_rate":4},{"dropped_by_rate":8}]
+generator: tippecanoe v2.49.0
+generator_options: tippecanoe '--output=dist/synthetic_contours.pmtiles' '--layer=contours' '--minimum-zoom=11' '--maximum-zoom=14' '--simplification=10' --no-feature-limit --no-tile-size-limit --force /tmp/synthetic.geojsonl
+actual tile data: entries=37 tiles=37 contour_tiles=37 contour_features=37 contour_line_parts=37 contour_vertices=204 parse_errors=0
+  z11/1125/747 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
+  z12/2251/1495 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
+  z13/4502/2991 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
+  z14/9004/5982 (43.6,17.85): contours=1 lineParts=1 vertices=9  [contours=1]
+
+## synthetic: CONTROL no tippecanoe.minzoom tag
+file: dist/synthetic_contours_notag.pmtiles
+size: 4840 bytes
+zoom: 11-14
+contours tilestats: count=8 geometry=LineString
+generator: tippecanoe v2.49.0
+generator_options: tippecanoe '--output=dist/synthetic_contours_notag.pmtiles' '--layer=contours' '--minimum-zoom=11' '--maximum-zoom=14' '--simplification=10' --no-feature-limit --no-tile-size-limit --force /tmp/synthetic-notag.geojsonl
+actual tile data: entries=37 tiles=37 contour_tiles=37 contour_features=66 contour_line_parts=66 contour_vertices=396 parse_errors=0
+  z11/1125/747 (43.6,17.85): contours=8 lineParts=8 vertices=60  [contours=8]
+  z12/2251/1495 (43.6,17.85): contours=7 lineParts=7 vertices=60  [contours=7]
+  z13/4502/2991 (43.6,17.85): contours=5 lineParts=5 vertices=42  [contours=5]
+  z14/9004/5982 (43.6,17.85): contours=4 lineParts=4 vertices=28  [contours=4]
+
+## synthetic: FIX CANDIDATE per-tier + tile-join
+file: dist/synthetic_contours_tilejoin.pmtiles
+size: 4605 bytes
+zoom: 11-14
+contours tilestats: count=52 geometry=LineString
+generator: tile-join v2.49.0
+generator_options: tippecanoe '--output=dist/tier14.pmtiles' '--layer=contours' '--minimum-zoom=14' '--maximum-zoom=14' '--simplification=10' --no-feature-limit --no-tile-size-limit --force /tmp/tier14.geojsonl; tippecanoe '--output=dist/tier13.pmtiles' '--layer=contours' '--minimum-zoom=13' '--maximum-zoom=14' '--simplification=10' --no-feature-limit --no-tile-size-limit --force /tmp/tier13.geojsonl; tippecanoe '--output=dist/tier12.pmtiles' '--layer=contours' '--minimum-zoom=12' '--maximum-zoom=14' '--simplification=10' --no-feature-limit --no-tile-size-limit --force /tmp/tier12.geojsonl; tippecanoe '--output=dist/tier11.pmtiles' '--layer=contours' '--minimum-zoom=11' '--maximum-zoom=14' '--simplification=10' --no-feature-limit --no-tile-size-limit --force /tmp/tier11.geojsonl; tile-join '--output=dist/synthetic_contours_tilejoin.pmtiles' --force dist/tier11.pmtiles dist/tier12.pmtiles dist/tier13.pmtiles dist/tier14.pmtiles
+actual tile data: entries=37 tiles=37 contour_tiles=37 contour_features=52 contour_line_parts=52 contour_vertices=296 parse_errors=0
+  z11/1125/747 (43.6,17.85): contours=2 lineParts=2 vertices=18  [contours=2]
+  z12/2251/1495 (43.6,17.85): contours=3 lineParts=3 vertices=24  [contours=3]
+  z13/4502/2991 (43.6,17.85): contours=3 lineParts=3 vertices=24  [contours=3]
+  z14/9004/5982 (43.6,17.85): contours=4 lineParts=4 vertices=28  [contours=4]
+
