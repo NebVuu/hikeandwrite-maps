@@ -76,6 +76,14 @@ const withMaxzoom = process.argv.includes('--with-maxzoom');
 // tippecanoe's own default pyramid logic decides zoom appearance instead
 // of contour-tiers.js-style manual per-feature minzoom.
 const noTag = process.argv.includes('--no-tippecanoe-tag');
+// --tier=<N> emits only that tier's 2 features, with no tippecanoe hint at
+// all — for the fix under test: one tippecanoe run per tier using global
+// --minimum-zoom/--maximum-zoom instead of per-feature tagging, then
+// tile-join the per-tier outputs together. See offline-maps-rearchitecture
+// memory, 22.08.2026 night entry, for why per-feature tagging is out.
+const tierArg = process.argv.find((a) => a.startsWith('--tier='));
+const onlyTier = tierArg ? Number(tierArg.split('=')[1]) : null;
+const forceNoTag = noTag || onlyTier !== null;
 
 function feature(tier, z, x, y, offsetFraction, elev) {
   const bbox = tileBBox(z, x, y);
@@ -87,7 +95,7 @@ function feature(tier, z, x, y, offsetFraction, elev) {
       coordinates: zigzagLine(bbox, offsetFraction),
     },
   };
-  if (!noTag) {
+  if (!forceNoTag) {
     result.tippecanoe = withMaxzoom ? { minzoom: tier, maxzoom: 14 } : { minzoom: tier };
   }
   return result;
@@ -103,6 +111,10 @@ const tiles = {
 const features = [];
 let elev = 1000;
 for (const tier of [11, 12, 13, 14]) {
+  if (onlyTier !== null && tier !== onlyTier) {
+    elev += 20;
+    continue;
+  }
   const [x, y] = tiles[tier];
   features.push(feature(tier, tier, x, y, 0.3, elev));
   elev += 10;

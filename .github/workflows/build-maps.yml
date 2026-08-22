@@ -310,6 +310,38 @@ jobs:
             --all-tiles 43.6,17.85 \
             | tee -a diagnostics/synthetic.txt
 
+      # ROOT CAUSE CONFIRMED: per-feature `tippecanoe.minzoom` tagging is
+      # what collapses tiles to ~1 feature (see offline-maps-rearchitecture
+      # memory, 22.08.2026 night). Candidate fix: one tippecanoe run per
+      # tier using *global* --minimum-zoom (no per-feature tags at all),
+      # then tile-join the 4 outputs into one --layer=contours file — the
+      # same merge mechanism already used elsewhere in this pipeline.
+      # Verify this actually produces the correct cascading union (z11:
+      # tier-11 only, z14: all four tiers) before touching build-contours.sh.
+      - name: 'FIX CANDIDATE: per-tier tippecanoe runs + tile-join'
+        run: |
+          for tier in 11 12 13 14; do
+            node scripts/generate-synthetic-contours.js --tier=$tier > /tmp/tier$tier.geojsonl
+            tippecanoe \
+              --output=dist/tier$tier.pmtiles \
+              --layer=contours \
+              --minimum-zoom=$tier \
+              --maximum-zoom=14 \
+              --simplification=10 \
+              --no-feature-limit \
+              --no-tile-size-limit \
+              --force \
+              /tmp/tier$tier.geojsonl
+          done
+          tile-join \
+            --output=dist/synthetic_contours_tilejoin.pmtiles \
+            --force \
+            dist/tier11.pmtiles dist/tier12.pmtiles dist/tier13.pmtiles dist/tier14.pmtiles
+          node scripts/diagnose-contours.js \
+            dist/synthetic_contours_tilejoin.pmtiles "synthetic: FIX CANDIDATE per-tier + tile-join" \
+            --all-tiles 43.6,17.85 \
+            | tee -a diagnostics/synthetic.txt
+
       - name: Commit synthetic diagnostic to this branch
         run: |
           git config user.name 'build-maps diagnostics'
