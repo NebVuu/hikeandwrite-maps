@@ -127,13 +127,24 @@ echo "simplified contours: $(du -h "$simplified_geojson" | cut -f1)"
 # disk-space failure instead of a memory one.
 rm -f "$contours_geojson"
 
-# Per-feature minzoom (see contour-tiers.js) — this is the bigger size
-# lever: without it, every line renders at every zoom, which is most of why
-# the first real build (BA) came out at 285MB, comparable to the whole
-# basemap, for a single-attribute line layer.
-tiered_geojson="$dem_dir/contours_tiered.geojsonl"
-node "$repo_root/scripts/contour-tiers.js" "$simplified_geojson" > "$tiered_geojson"
-echo "tiered contours: $(du -h "$tiered_geojson" | cut -f1)"
+# Per-tier tippecanoe runs + tile-join — replaces per-feature
+# `tippecanoe.minzoom` tagging, which is a confirmed tippecanoe defect
+# (v2.49.0, isolated 22.08.2026 with a minimal 8-feature repro on the
+# contour-investigation branch): merely adding that property to a feature
+# collapses every tile down to ~1 feature regardless of --drop-rate,
+# --no-feature-limit, --no-tile-size-limit, or an explicit per-feature
+# maxzoom — none of which made any difference, byte-for-byte, in
+# isolation. Splitting into 4 per-tier files (contour-tiers.js) and giving
+# each its own tippecanoe run with a *global* --minimum-zoom instead (no
+# per-feature tags at all) was verified on that same repro to produce the
+# correct cascading union — feature count growing with zoom instead of
+# being stuck at 1. See offline-maps-rearchitecture memory, 22.08.2026
+# "night"/"later night" entries, for the full elimination sequence.
+tiered_prefix="$dem_dir/contours_tiered"
+node "$repo_root/scripts/contour-tiers.js" "$simplified_geojson" "$tiered_prefix"
+for tier in 11 12 13 14; do
+  echo "  tier $tier: $(du -h "${tiered_prefix}_${tier}.geojsonl" | cut -f1)"
+done
 
 # maxzoom 14 matches the basemap's own ceiling (_offlineMapMaxZoom in
 # recorded_track_map.dart), so the deepest zoom a user can reach still has
@@ -145,21 +156,31 @@ echo "tiered contours: $(du -h "$tiered_geojson" | cut -f1)"
 # from tiles that exceed tippecanoe's default limits, and contour tiles are
 # densest exactly on steep mountain terrain — i.e. it was deleting lines
 # precisely where a hiker needs them, while leaving flat areas intact. The
-# per-feature minzoom tiering above (contour-tiers.js) is the right lever
-# for size instead, since it thins by elevation significance rather than by
-# whichever tile happens to be busiest. Watch the output size below: this
-# removes tippecanoe's own safety valve, so if a region ever comes out
-# unreasonably large, tighten the tiering rather than restoring the drop.
-tippecanoe \
+# per-tier splitting above is the right lever for size instead, since it
+# thins by elevation significance rather than by whichever tile happens to
+# be busiest. Watch the output size below: this removes tippecanoe's own
+# safety valve, so if a region ever comes out unreasonably large, tighten
+# the tiering rather than restoring the drop.
+tier_pmtiles=()
+for tier in 11 12 13 14; do
+  tier_output="$dem_dir/contours_tier${tier}.pmtiles"
+  tippecanoe \
+    --output="$tier_output" \
+    --layer=contours \
+    --minimum-zoom="$tier" \
+    --maximum-zoom=14 \
+    --simplification=10 \
+    --no-feature-limit \
+    --no-tile-size-limit \
+    --force \
+    "${tiered_prefix}_${tier}.geojsonl"
+  tier_pmtiles+=("$tier_output")
+done
+
+tile-join \
   --output="$dist_dir/${iso}_contours.pmtiles" \
-  --layer=contours \
-  --minimum-zoom=11 \
-  --maximum-zoom=14 \
-  --simplification=10 \
-  --no-feature-limit \
-  --no-tile-size-limit \
   --force \
-  "$tiered_geojson"
+  "${tier_pmtiles[@]}"
 
 # The cutline above already keeps contour *lines* inside the mask, but
 # tippecanoe still writes whichever tiles those lines touch, so the tileset's
