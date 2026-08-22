@@ -127,10 +127,16 @@ jobs:
           chmod +x scripts/build-contours.sh
           scripts/build-contours.sh "regions/${{ matrix.region }}.yml"
 
-      - name: Merge basemap + contours, drop unused layers
+      # No longer merges contours into the basemap — tile-join silently
+      # discards ~95% of the contour features on merge (open upstream bug,
+      # felt/tippecanoe#278, confirmed via a same-region A/B). Contours
+      # ship as their own dist/<ISO>_contours.pmtiles from the "Build
+      # contours" step above; this only filters unused layers from the
+      # basemap file. See scripts/filter-basemap-layers.sh's header.
+      - name: Filter unused layers from basemap
         run: |
-          chmod +x scripts/merge-basemap-contours.sh
-          scripts/merge-basemap-contours.sh "regions/${{ matrix.region }}.yml"
+          chmod +x scripts/filter-basemap-layers.sh
+          scripts/filter-basemap-layers.sh "regions/${{ matrix.region }}.yml"
 
       # Catches a build silently capped below what regions/<iso>.yml asked
       # for (see scripts/validate-maxzoom.sh's header comment for the
@@ -214,18 +220,24 @@ jobs:
       - name: Publish release
         # maps-v5 was published from a branch (contours-separate-file,
         # Problem B fix: contours never merged into the basemap) whose tag
-        # bump never made it back into this file — main was still on v4.
-        # v6 bumps past that and carries today's Problem A fix (see
-        # offline-maps-rearchitecture memory, 22.08.2026). Never reuse an
-        # old tag for structurally different content — bump forward so an
-        # already-shipped app build keeps pointing at stable bytes.
+        # bump never made it back into this file — main was still on v4,
+        # and still had the merge-into-basemap step Problem B's fix was
+        # supposed to remove. v6 carries both that never-merged fix and
+        # today's Problem A fix together (see offline-maps-rearchitecture
+        # memory, 22.08.2026). Never reuse an old tag for structurally
+        # different content — bump forward so an already-shipped app build
+        # keeps pointing at stable bytes. `release edit` (not just
+        # `create`) so the notes stay accurate even on a re-run against an
+        # already-created tag — v6 was first created before this exact
+        # step existed, with stale notes that only described Problem A.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view maps-v6 >/dev/null 2>&1 \
-            || gh release create maps-v6 \
-                 --title "Offline maps v6" \
-                 --notes "Contours fixed: per-feature tippecanoe.minzoom tagging was silently collapsing every tile to ~1 feature regardless of --drop-rate/--no-feature-limit/--no-tile-size-limit (a real tippecanoe v2.49.0 defect, confirmed via a minimal repro). Replaced with one tippecanoe run per zoom tier (global --minimum-zoom) plus tile-join. Contour files are now much larger since they carry real data (BA: ~117MB vs the broken ~6MB) but correctness was the bar, not size. Also carries forward maps-v5's Problem B fix (contours never merged into the basemap), whose tag bump never reached this file. Manifest schema 4: per-asset sha256, no hasContours. See TASKS.md in the HikeAndWrite repo."
+            || gh release create maps-v6 --title "Offline maps v6"
+          gh release edit maps-v6 \
+            --title "Offline maps v6" \
+            --notes "Contours ship as their own <ISO>_contours.pmtiles again, downloaded alongside the basemap instead of merged into it — merging via tile-join was silently discarding ~95% of the contour features (open upstream bug merging PMTiles archives, felt/tippecanoe#278), and every mainstream hiking map style ships contours as their own tileset anyway (Problem B, originally fixed on a branch that never merged back). On top of that, the contours themselves are now correct: per-feature tippecanoe.minzoom tagging was silently collapsing every tile to ~1 feature regardless of --drop-rate/--no-feature-limit/--no-tile-size-limit (a real tippecanoe v2.49.0 defect, confirmed via a minimal repro) — replaced with one tippecanoe run per zoom tier (global --minimum-zoom) plus tile-join (Problem A). Contour files are much larger as a result since they carry real data (BA: ~117MB vs the old broken ~6MB) but correctness was the bar, not size. Manifest schema 5: per-country contours asset (file/size/sha256) alongside basemap. See TASKS.md in the HikeAndWrite repo."
           for f in dist/*.pmtiles dist/maps.json; do
             gh release upload maps-v6 "$f" --clobber
           done

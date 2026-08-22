@@ -26,14 +26,14 @@ file down to a tile-aligned mask of the boundary itself — see
 for the measured border pad it preserves. Resulting mask area against
 boundary area: BA 1.36x, HR 1.35x, ME 1.63x, RS 1.32x, SI 1.61x.
 
-`scripts/merge-basemap-contours.sh` then drops every Shortbread layer the app
+`scripts/filter-basemap-layers.sh` then drops every Shortbread layer the app
 can't draw. `versatiles convert` copies whole tiles and has no layer filter,
 so `addresses` (every house number in the country, z14), `buildings` (every
 footprint, z14), `pois`, `sites`, `public_transport`, `street_polygons`,
 `bridges`, `ferries` and the dam/pier layers were all being downloaded and
-never rendered. That script carries the allowlist of what survives, and the
-`tile-join` pass doing the filtering was already running for the contour
-merge, so it costs no extra step.
+never rendered. That script carries the allowlist of what survives — a
+single-file `tile-join` pass, not a merge with anything else (see
+"Contours" below for why that split matters).
 
 21.08.2026: tried raising `maxzoom` from 14 to 16 for more trail/POI
 detail, then reverted — confirmed via the published `maps-v3` files' own
@@ -96,15 +96,15 @@ is therefore open again:** re-run `pmtiles extract --dry-run` against the mask
 before assuming z10 is still the right ceiling, since z11 may now cost about
 what unclipped z10 did.
 
-## Contours (all regions, merged into the basemap)
+## Contours (own file per region, downloaded alongside the basemap)
 
 `scripts/build-contours.sh` generates 10m-interval contour lines from
 Copernicus GLO-30 DEM data (the same free source Mapterhorn's hillshade
 already uses outside Switzerland) — `gdalbuildvrt` + `gdalwarp` (clip to the
 region's tile mask) + `gdal_contour` (extract lines as GeoJSON) + `tippecanoe`
-(build the vector tiles). `scripts/dem-tiles.js` works out which 1°×1°
-Copernicus tiles cover a region's boundary and prints their (verified, public,
-no-credentials-needed) download URLs.
+(build the vector tiles, one run per zoom tier — see below). `scripts/dem-
+tiles.js` works out which 1°×1° Copernicus tiles cover a region's boundary
+and prints their (verified, public, no-credentials-needed) download URLs.
 
 The `gdalwarp -cutline` against `scripts/region-mask.js`' output matters more
 here than anywhere else in the pipeline: "Build contours" is by far its
@@ -115,13 +115,43 @@ administrative border itself — this mask is already padded ~10.4 km past it,
 so the Maglić fix stands.
 
 Extended 21.08.2026 from the original BA-only trial (19.08.2026) to every
-region in `regions/*.yml`, and no longer published as its own
-`<ISO>_contours.pmtiles` release asset: `scripts/merge-basemap-
-contours.sh` runs `tile-join` right after, folding the `contours` layer
-into that same region's `dist/<ISO>.pmtiles` and deleting the standalone
-file — Shortbread's basemap layers and the `contours` layer don't share a
-name, so this is a straight union, not a conflict to resolve. The app
-downloads one vector file per country, not two.
+region in `regions/*.yml`. That same day it was folded into the basemap
+file via `tile-join` to cut the download to one file per country —
+**reverted 22.08.2026**: that merge was silently discarding ~95% of the
+contour features on every real build tested (confirmed with a same-region,
+same-input A/B across four `tile-join` flag combinations, none of which
+changed the result), consistent with an open, unresolved upstream bug
+merging PMTiles archives in this exact tippecanoe fork
+([felt/tippecanoe#278](https://github.com/felt/tippecanoe/issues/278) —
+crashes and corrupted-geometry errors on the same operation). Checked how
+Mapbox Outdoors and OpenAndroMaps do this: neither merges contours into the
+basemap file either — both ship them as their own tileset/source. Contours
+publish as `dist/<ISO>_contours.pmtiles` again, its own release asset and
+its own `contours` entry in `dist/maps.json` per country, and the app
+downloads it alongside the basemap under the same single download action
+(see `offline-maps-rearchitecture` in the HikeAndWrite repo) — the user
+still only taps one button; there are just two files behind it, the same
+shape the shared hillshade download already has.
+
+**Separately, and since fixed (22.08.2026)**: even the standalone
+tippecanoe build's own `dropped_by_rate` accounting used to show a large
+fraction of generated contour lines being discarded somewhere inside
+tippecanoe's own build — a second, independent bug (predates and is
+unrelated to the tile-join issue above; it was the cause of the "too
+sparse" complaint from 20.08.2026, before contours were ever merged into
+anything). Root cause: tagging each contour line with a per-feature
+`tippecanoe.minzoom` property (the previous size-reduction strategy)
+collapsed every tile down to ~1 feature regardless of `--drop-rate`,
+`--no-feature-limit`, `--no-tile-size-limit`, or an explicit per-feature
+`maxzoom` — a real tippecanoe v2.49.0 defect, isolated with a minimal
+repro (see the `contour-investigation` branch's history and the
+`offline-maps-rearchitecture` memory for the full elimination sequence).
+Fix: `scripts/contour-tiers.js` splits contours into 4 per-tier files by
+elevation instead of tagging them, and `build-contours.sh` runs tippecanoe
+once per tier with a *global* `--minimum-zoom` (no per-feature tags at
+all), then `tile-join`s the 4 tier outputs into one `<ISO>_contours.pmtiles`
+— correctness over size: BA's contours file grew from ~6MB (broken) to
+~117MB (complete).
 
 ## Adding a region
 
@@ -148,10 +178,10 @@ build if a region's published file doesn't actually reach it.
 `.github/workflows/build-maps.yml` runs on a push to `main` that touches
 `scripts/`, `regions/` or the workflow itself, weekly, and on manual
 dispatch — as three jobs: `discover` turns `regions/*.yml` into a matrix,
-`region` builds one country per runner (basemap → contours → merge/filter →
-validate `max_zoom`) and uploads it as an artifact, and `publish` collects
-those artifacts, builds the one shared hillshade from every region's
-boundary, writes the manifest and uploads the release.
+`region` builds one country per runner (basemap → contours → filter →
+validate `max_zoom`) and uploads both `.pmtiles` files as one artifact, and
+`publish` collects those artifacts, builds the one shared hillshade from
+every region's boundary, writes the manifest and uploads the release.
 
 The push trigger is path-scoped so a docs commit doesn't spend 25 minutes of
 runners rebuilding identical tiles, and the whole workflow runs under one
@@ -172,18 +202,19 @@ a build silently capped below what `regions/<iso>.yml` asked for blocks
 publishing rather than getting recorded in the manifest — see the 21.08.2026
 note above for the incident it exists to catch.
 
-Assets go to the `maps-v4` GitHub Release, overwriting that release's assets
+Assets go to the `maps-v6` GitHub Release, overwriting that release's assets
 each run (`gh release upload --clobber`) rather than creating a new dated
-release each time — the app always points at the same release tag. v4 rather
-than v3 because every file's *contents* changed (clipped to a boundary mask,
-unused layers dropped) even though the file *layout* didn't, so clients must
-re-download; the app has a `mapFormatVersion` migration for exactly this.
-`maps-v3` stays published, untouched, until an app build using `maps-v4` has
-actually shipped, and `maps-v2` (the older per-country 3-file layout:
-separate basemap/hillshade/contours) stays published too — the base URL is a
-build-time `--dart-define`, so there's no way for one app binary to handle
-more than one layout, and a client pointed at a tag that no longer exists has
-no fallback.
+release each time — the app always points at the same release tag. v6 rather
+than v5 because contours changed shape again (their own file, not merged
+into the basemap) and became internally correct (per-tier tippecanoe runs
+instead of per-feature tagging that silently collapsed them), so clients
+must re-download; the app has a `mapFormatVersion` migration for exactly
+this. `maps-v5`/`v4`/`v3` stay published, untouched, until an app build
+using `maps-v6` has actually shipped, and `maps-v2` (the older per-country
+3-file layout: separate basemap/hillshade/contours) stays published too —
+the base URL is a build-time `--dart-define`, so there's no way for one app
+binary to handle more than one layout, and a client pointed at a tag that no
+longer exists has no fallback.
 
 ## Local run order
 
@@ -196,11 +227,12 @@ previous one's output:
 for region in regions/*.yml; do
   scripts/build-region.sh "$region"            # basemap + boundary + tile mask
   scripts/build-contours.sh "$region"          # needs the boundary and the mask
-  scripts/merge-basemap-contours.sh "$region"  # merge + drop unused layers
+  scripts/filter-basemap-layers.sh "$region"   # drop unused basemap layers
 done
 scripts/build-hillshade-regional.sh regions/*.yml   # needs every boundary
 scripts/merge-manifest.sh                           # needs every final file
 ```
 
-Output lands in `dist/` (gitignored): `<ISO>.pmtiles` per region, one shared
-`hillshade.pmtiles`, and `maps.json`.
+Output lands in `dist/` (gitignored): `<ISO>.pmtiles` and
+`<ISO>_contours.pmtiles` per region, one shared `hillshade.pmtiles`, and
+`maps.json`.
