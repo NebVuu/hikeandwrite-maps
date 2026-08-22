@@ -130,14 +130,18 @@ jobs:
           scripts/build-contours.sh "regions/${{ matrix.region }}.yml"
 
       # INVESTIGATION ONLY (contour-investigation branch) — not part of the
-      # normal build, never runs on `main`. Checks the tippecanoe-built
-      # contours-only file BEFORE tile-join touches it, to see whether the
-      # feature drop reported in the published archive's tilestats
-      # (`strategies: [..., {"dropped_by_rate": N}, ...]`) is already present
-      # at this stage or only appears after merging. See
-      # scripts/diagnose-contours.js's own header comment for the full
-      # context.
-      - name: 'DIAGNOSTIC: contours-only file, before merge'
+      # normal build, never runs on `main`. Problem A's root cause is found
+      # and fixed (see offline-maps-rearchitecture memory, 22.08.2026
+      # "night"/"later night" entries): per-feature `tippecanoe.minzoom`
+      # tagging itself collapsed every tile to ~1 feature; build-contours.sh
+      # now runs one tippecanoe pass per tier with a global --minimum-zoom
+      # instead, then tile-joins the 4 outputs, and writes its own
+      # before-extract diagnostic straight to diagnostics/<ISO>.txt. This
+      # step now only adds the post-extract check, for symmetry with that —
+      # confirms the fix survives the `pmtiles extract` clip too, on real BA
+      # data, at the same Volujak/Bjelašnica coordinates used throughout
+      # this investigation.
+      - name: 'DIAGNOSTIC: contours file, after extract'
         if: github.ref != 'refs/heads/main'
         run: |
           mkdir -p diagnostics
@@ -147,50 +151,11 @@ jobs:
           # guess the casing. A prior run of this exact step used
           # matrix.region directly, silently found nothing, and wasted a
           # full CI cycle before this was caught.
-          #
-          # Problem B (tile-join silently dropping ~95% of contour features
-          # on merge) is understood and fixed — see the contours-separate-file
-          # branch, published as maps-v5: contours now ship as their own
-          # file, never merged. This step is scoped to "Problem A" only: the
-          # published maps-v5 BA_contours.pmtiles has a healthy aggregate
-          # feature count (598,756) but real device decoding at Bjelašnica,
-          # Prenj and Volujak — all real mountains, two of them nowhere near
-          # a border — found exactly 1 contour feature per tile at every
-          # zoom checked. `density` below checks whether that sparseness is
-          # already in the raw candidate lines contour-tiers.js hands to
-          # tippecanoe (upstream: DEM/gdal_contour/simplify/tiering) or only
-          # appears once tippecanoe or the extract clip get involved.
           iso=$(yq '.iso' "regions/${{ matrix.region }}.yml")
-          node scripts/diagnose-contour-input.js \
-            "build/dem/${iso}/contours_tiered.geojsonl" \
-            | tee -a "diagnostics/${{ matrix.region }}.txt"
-          for coord in "43.70,18.27" "43.60,17.85"; do
-            lat=${coord%,*}; lon=${coord#*,}
-            for z in 11 12 14; do
-              node scripts/diagnose-contour-density.js \
-                "build/dem/${iso}/contours_tiered.geojsonl" "$lat" "$lon" "$z" \
-                | tee -a "diagnostics/${{ matrix.region }}.txt"
-            done
-          done
-          node scripts/diagnose-contours.js \
-            "dist/${iso}_contours_before_extract.pmtiles" \
-            "${{ matrix.region }}: contours after tippecanoe, before extract" \
-            --all-tiles "43.70,18.27" "43.60,17.85" \
-            | tee -a "diagnostics/${{ matrix.region }}.txt"
           node scripts/diagnose-contours.js \
             "dist/${iso}_contours.pmtiles" \
-            "${{ matrix.region }}: contours after extract, before tile-join" \
-            --all-tiles "43.70,18.27" "43.60,17.85" \
-            | tee -a "diagnostics/${{ matrix.region }}.txt"
-          node scripts/diagnose-contours.js \
-            "dist/${iso}_contours_simp1.pmtiles" \
-            "${{ matrix.region }}: CONTROL A - simplification=1 instead of 10" \
-            --all-tiles "43.70,18.27" "43.60,17.85" \
-            | tee -a "diagnostics/${{ matrix.region }}.txt"
-          node scripts/diagnose-contours.js \
-            "dist/${iso}_contours_droprate0.pmtiles" \
-            "${{ matrix.region }}: CONTROL B - explicit --drop-rate=0 added" \
-            --all-tiles "43.70,18.27" "43.60,17.85" \
+            "${{ matrix.region }}: contours after extract (fixed pipeline)" \
+            --all-tiles "43.305,18.665" "43.60,17.85" \
             | tee -a "diagnostics/${{ matrix.region }}.txt"
 
       # Problem B is fixed (contours-separate-file branch, maps-v5) — the

@@ -1,13 +1,22 @@
 #!/usr/bin/env node
 'use strict';
 
-// Tags each contour line with a tippecanoe per-feature minzoom, read
-// directly from a GeoJSON Feature's own `tippecanoe` property (a
-// documented tippecanoe input convention — no extra flag needed to make
-// it take effect). Without this, every line rendered at every zoom, which
-// is most of why the first real BA build came out at 285MB — comparable to
-// the whole basemap — for a single-attribute line layer (see TASKS.md,
-// "Hillshade + konture").
+// Splits contour lines into 4 per-tier GeoJSONSeq files by elevation, so
+// build-contours.sh can run tippecanoe once per tier with a *global*
+// --minimum-zoom instead of tagging every feature with a per-feature
+// `tippecanoe.minzoom` property.
+//
+// 22.08.2026: per-feature `tippecanoe.minzoom` tagging is a confirmed
+// tippecanoe defect (v2.49.0) — isolated with a minimal 8-feature repro
+// (see offline-maps-rearchitecture memory, "night" and "later night"
+// entries): merely adding that property to features collapses every tile
+// to ~1 feature regardless of --drop-rate, --no-feature-limit,
+// --no-tile-size-limit, or explicit maxzoom. Removing the tag and letting
+// tippecanoe's own global --minimum-zoom decide zoom appearance instead
+// (verified via 4 separate tippecanoe runs + tile-join) produces the
+// correct cascading union. This script's *tiering logic* (which elevation
+// belongs to which zoom) is unchanged from the original per-feature-tag
+// version — only where that decision gets written changed.
 //
 // 20.08.2026: four tiers instead of two, after the interval went 20m ->
 // 10m (see build-contours.sh). Each zoom step roughly doubles the line
@@ -38,20 +47,20 @@
 // keeps memory flat no matter how large the region or how fine the
 // interval, so this stops being a ceiling to keep re-tuning around.
 //
-// Input and output are both newline-delimited (`-f GeoJSONSeq` upstream).
-// tippecanoe reads that natively — and per its README will even
-// parallelise input automatically when given line-delimited JSON, which
-// is a speed lever available later if the 10m interval makes the tiling
-// step slow.
+// Input is newline-delimited (`-f GeoJSONSeq` upstream). Each of the 4
+// outputs is also newline-delimited, ready for tippecanoe to read
+// natively.
 //
-// Usage: node contour-tiers.js input.geojsonl > output.geojsonl
+// Usage: node contour-tiers.js input.geojsonl output-prefix
+//   -> writes output-prefix_11.geojsonl, _12, _13, _14
 
 const fs = require('fs');
 const readline = require('readline');
 
 const path = process.argv[2];
-if (!path) {
-  console.error('Usage: node contour-tiers.js <contours.geojsonl>');
+const outputPrefix = process.argv[3];
+if (!path || !outputPrefix) {
+  console.error('Usage: node contour-tiers.js <contours.geojsonl> <output-prefix>');
   process.exit(1);
 }
 
@@ -63,19 +72,28 @@ function isMultipleOf(elevation, step) {
     Math.abs((elevation % step) - step) < 0.001;
 }
 
-function minzoomFor(elevation) {
+const TIERS = [11, 12, 13, 14];
+
+function tierFor(elevation) {
   if (isMultipleOf(elevation, 100)) return 11;
   if (isMultipleOf(elevation, 50)) return 12;
   if (isMultipleOf(elevation, 20)) return 13;
   return 14;
 }
 
+const outputStreams = Object.fromEntries(
+  TIERS.map((tier) => [
+    tier,
+    fs.createWriteStream(`${outputPrefix}_${tier}.geojsonl`),
+  ]),
+);
+
 const input = readline.createInterface({
   input: fs.createReadStream(path, 'utf8'),
   crlfDelay: Infinity,
 });
 
-let tagged = 0;
+const tierCounts = Object.fromEntries(TIERS.map((tier) => [tier, 0]));
 let skipped = 0;
 
 input.on('line', (rawLine) => {
@@ -101,20 +119,24 @@ input.on('line', (rawLine) => {
     skipped += 1;
     return;
   }
-  feature.tippecanoe = { minzoom: minzoomFor(elevation) };
-  tagged += 1;
-  process.stdout.write(JSON.stringify(feature) + '\n');
+  const tier = tierFor(elevation);
+  tierCounts[tier] += 1;
+  outputStreams[tier].write(JSON.stringify(feature) + '\n');
 });
 
 input.on('close', () => {
-  process.stderr.write(`contour-tiers: tagged ${tagged} features`);
+  for (const stream of Object.values(outputStreams)) stream.end();
+  const total = Object.values(tierCounts).reduce((a, b) => a + b, 0);
+  process.stderr.write(
+    `contour-tiers: split ${total} features (${TIERS.map((t) => `z${t}=${tierCounts[t]}`).join(', ')})`,
+  );
   if (skipped > 0) {
     process.stderr.write(`, skipped ${skipped} unusable lines`);
   }
   process.stderr.write('\n');
-  if (tagged === 0) {
+  if (total === 0) {
     process.stderr.write(
-      'contour-tiers: no features tagged — is the input newline-delimited ' +
+      'contour-tiers: no features split — is the input newline-delimited ' +
         'GeoJSON (-f GeoJSONSeq)?\n',
     );
     process.exit(1);
