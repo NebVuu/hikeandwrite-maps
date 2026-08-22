@@ -1,0 +1,6 @@
+## hr: contours-only (pre tile-join)
+(missing: dist/hr_contours.pmtiles)
+
+## hr: merged (post tile-join)
+(missing: dist/hr.pmtiles)
+
