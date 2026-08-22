@@ -61,12 +61,25 @@ function zigzagLine(bbox, offsetFraction) {
   return points;
 }
 
+// --with-maxzoom tests a specific hypothesis: tippecanoe's docs say a
+// feature's `tippecanoe.maxzoom`, if unset, defaults to the layer's own
+// --maximum-zoom (14 here) — i.e. minzoom should be a floor, not a pin.
+// If features are actually only surviving at their own tagged minzoom and
+// nowhere above it (exactly the symptom seen in both this synthetic repro
+// and the real 598K-feature BA build), an unset per-feature maxzoom
+// silently behaving as if maxzoom==minzoom would explain it perfectly —
+// this flag tests that directly by setting maxzoom explicitly.
+const withMaxzoom = process.argv.includes('--with-maxzoom');
+
 function feature(tier, z, x, y, offsetFraction, elev) {
   const bbox = tileBBox(z, x, y);
+  const tippecanoeProps = withMaxzoom
+    ? { minzoom: tier, maxzoom: 14 }
+    : { minzoom: tier };
   return {
     type: 'Feature',
     properties: { elev, tier },
-    tippecanoe: { minzoom: tier },
+    tippecanoe: tippecanoeProps,
     geometry: {
       type: 'LineString',
       coordinates: zigzagLine(bbox, offsetFraction),
