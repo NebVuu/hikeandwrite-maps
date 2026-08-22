@@ -13,7 +13,7 @@
 # same header field here, right after the build, turns that into an
 # immediate CI failure instead.
 #
-# Requires build-region.sh and scripts/merge-basemap-contours.sh to have
+# Requires build-region.sh and scripts/filter-basemap-layers.sh to have
 # already produced dist/<ISO>.pmtiles for every region checked — run this
 # after both, before Build manifest/Publish release.
 #
@@ -36,7 +36,7 @@ for region_file in "$@"; do
   pmtiles_path="$dist_dir/$iso.pmtiles"
 
   if [ ! -f "$pmtiles_path" ]; then
-    echo "Missing $pmtiles_path — run build-region.sh and merge-basemap-contours.sh for $region_file first" >&2
+    echo "Missing $pmtiles_path — run build-region.sh and filter-basemap-layers.sh for $region_file first" >&2
     exit 1
   fi
 

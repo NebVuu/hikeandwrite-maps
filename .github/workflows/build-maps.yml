@@ -127,10 +127,15 @@ jobs:
           chmod +x scripts/build-contours.sh
           scripts/build-contours.sh "regions/${{ matrix.region }}.yml"
 
-      - name: Merge basemap + contours, drop unused layers
+      # 22.08.2026: no longer merges contours into the basemap — see
+      # scripts/filter-basemap-layers.sh's header comment for why (tile-join
+      # silently discarding ~95% of the merged contour features). Contours
+      # ship as their own dist/<ISO>_contours.pmtiles from the "Build
+      # contours" step above, unchanged from here on.
+      - name: Filter unused layers from basemap
         run: |
-          chmod +x scripts/merge-basemap-contours.sh
-          scripts/merge-basemap-contours.sh "regions/${{ matrix.region }}.yml"
+          chmod +x scripts/filter-basemap-layers.sh
+          scripts/filter-basemap-layers.sh "regions/${{ matrix.region }}.yml"
 
       # Catches a build silently capped below what regions/<iso>.yml asked
       # for (see scripts/validate-maxzoom.sh's header comment for the
@@ -215,10 +220,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view maps-v4 >/dev/null 2>&1 \
-            || gh release create maps-v4 \
-                 --title "Offline maps v4" \
-                 --notes "Per-country extracts clipped to a tile-aligned boundary mask instead of a bounding box, unused Shortbread layers dropped, one shared regional hillshade clipped the same way. Basemap maxzoom stays 14 — VersaTiles' planet source has no deeper data (see scripts/validate-maxzoom.sh). Manifest schema 4: per-asset sha256, no hasContours. See TASKS.md in the HikeAndWrite repo."
+          gh release view maps-v5 >/dev/null 2>&1 \
+            || gh release create maps-v5 \
+                 --title "Offline maps v5" \
+                 --notes "Contours ship as their own <ISO>_contours.pmtiles again, downloaded alongside the basemap instead of merged into it — merging via tile-join was silently discarding ~95% of the contour features (open upstream bug merging PMTiles archives, felt/tippecanoe#278), and every mainstream hiking map style ships contours as their own tileset anyway. Basemap maxzoom stays 14 — VersaTiles' planet source has no deeper data. Manifest schema 5: per-country contours asset. See TASKS.md in the HikeAndWrite repo."
           for f in dist/*.pmtiles dist/maps.json; do
-            gh release upload maps-v4 "$f" --clobber
+            gh release upload maps-v5 "$f" --clobber
           done
