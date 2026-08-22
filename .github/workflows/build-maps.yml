@@ -8,7 +8,10 @@ on:
   # note the workflow file itself is included, since installing a different
   # tool version changes the output as surely as editing a script does.
   push:
-    branches: [main]
+    # contours-separate-file: temporary, so this branch can be verified via
+    # CI before merging to main (no `gh`/API token available to trigger
+    # workflow_dispatch directly) — remove this branch name when merging.
+    branches: [main, contours-separate-file]
     paths:
       - 'scripts/**'
       - 'regions/**'
