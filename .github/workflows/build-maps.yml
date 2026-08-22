@@ -154,9 +154,9 @@ jobs:
           iso=$(yq '.iso' "regions/${{ matrix.region }}.yml")
           node scripts/diagnose-contours.js \
             "dist/${iso}_contours.pmtiles" \
-            "${{ matrix.region }}: contours after extract (fixed pipeline)" \
+            "${iso}: contours after extract (fixed pipeline)" \
             --all-tiles "43.305,18.665" "43.60,17.85" \
-            | tee -a "diagnostics/${{ matrix.region }}.txt"
+            | tee -a "diagnostics/${iso}.txt"
 
       # Problem B is fixed (contours-separate-file branch, maps-v5) — the
       # merge step and its own A/B diagnostic are irrelevant to Problem A
@@ -426,13 +426,24 @@ jobs:
           scripts/merge-manifest.sh
 
       - name: Publish release
+        # maps-v5 was actually published from the contours-separate-file
+        # branch (Problem B fix) but that branch's tag bump never made it
+        # back into main — this file still said maps-v4 here even though
+        # v5 already existed as a real release. v6 carries both that
+        # never-merged Problem B state and today's Problem A fix (see
+        # offline-maps-rearchitecture memory, 22.08.2026): contours are no
+        # longer merged into the basemap (Problem B) AND no longer tagged
+        # with per-feature tippecanoe.minzoom, which was silently
+        # collapsing them to ~1 feature/tile (Problem A). Never reuse an
+        # old tag for structurally different content — bump forward so an
+        # already-shipped app build keeps pointing at stable bytes.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view maps-v4 >/dev/null 2>&1 \
-            || gh release create maps-v4 \
-                 --title "Offline maps v4" \
-                 --notes "Per-country extracts clipped to a tile-aligned boundary mask instead of a bounding box, unused Shortbread layers dropped, one shared regional hillshade clipped the same way. Basemap maxzoom stays 14 — VersaTiles' planet source has no deeper data (see scripts/validate-maxzoom.sh). Manifest schema 4: per-asset sha256, no hasContours. See TASKS.md in the HikeAndWrite repo."
+          gh release view maps-v6 >/dev/null 2>&1 \
+            || gh release create maps-v6 \
+                 --title "Offline maps v6" \
+                 --notes "Contours fixed: per-feature tippecanoe.minzoom tagging was silently collapsing every tile to ~1 feature regardless of --drop-rate/--no-feature-limit/--no-tile-size-limit (confirmed via a minimal repro — a real tippecanoe v2.49.0 defect, not a flag we'd missed). Replaced with one tippecanoe run per zoom tier (global --minimum-zoom) plus tile-join. Contour files are now much larger since they carry real data (BA: ~117MB vs the broken ~6MB) but correctness was the bar, not size. Carries forward maps-v5's Problem B fix (contours never merged into the basemap) which never made it back into this branch's own publish step. Manifest schema 4: per-asset sha256, no hasContours. See TASKS.md in the HikeAndWrite repo."
           for f in dist/*.pmtiles dist/maps.json; do
-            gh release upload maps-v4 "$f" --clobber
+            gh release upload maps-v6 "$f" --clobber
           done
