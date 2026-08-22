@@ -1,0 +1,35 @@
+## me: contours-only (pre tile-join)
+file: dist/ME_contours.pmtiles
+size: 1552093 bytes
+zoom: 11-14
+contours tilestats: count=188483 geometry=LineString
+strategies: [{},{},{},{},{},{},{},{},{},{},{},{"dropped_by_rate":22924},{"dropped_by_rate":53074},{"dropped_by_rate":202333},{"dropped_by_rate":530075}]
+generator: tippecanoe v2.49.0
+  z11/1130/750 (43.305,18.665): contours=1  [contours=1]
+  z12/2260/1500 (43.305,18.665): contours=1  [contours=1]
+  z13/4520/3000 (43.305,18.665): contours=1  [contours=1]
+  z14/9041/6001 (43.305,18.665): contours=1  [contours=1]
+
+## me: merged (post tile-join)
+file: dist/ME.pmtiles
+size: 47419112 bytes
+zoom: 0-14
+contours tilestats: count=9400 geometry=LineString
+strategies: [{},{},{},{},{},{},{},{},{},{},{},{"dropped_by_rate":22924},{"dropped_by_rate":53074},{"dropped_by_rate":202333},{"dropped_by_rate":530075}]
+generator: tile-join v2.49.0
+  z0/0/0 (43.305,18.665): contours=0  [boundaries=4 ocean=2]
+  z1/1/0 (43.305,18.665): contours=0  [boundaries=4 ocean=1]
+  z2/2/1 (43.305,18.665): contours=0  [boundaries=4 boundary_labels=10 ocean=1]
+  z3/4/2 (43.305,18.665): contours=0  [boundaries=4 boundary_labels=9 ocean=1]
+  z4/8/5 (43.305,18.665): contours=0  [boundaries=4 boundary_labels=20 ocean=1 place_labels=65 water_polygons=59 water_polygons_labels=40]
+  z5/17/11 (43.305,18.665): contours=0  [boundaries=4 boundary_labels=87 ocean=1 place_labels=56 streets=1 water_polygons=84 water_polygons_labels=36]
+  z6/35/23 (43.305,18.665): contours=0  [boundaries=2 boundary_labels=14 ocean=1 place_labels=64 streets=2 water_polygons=87 water_polygons_labels=35]
+  z7/70/46 (43.305,18.665): contours=0  [boundaries=3 boundary_labels=4 land=1 ocean=1 place_labels=71 streets=2 water_polygons=107 water_polygons_labels=35]
+  z8/141/93 (43.305,18.665): contours=0  [boundaries=2 land=1 place_labels=49 streets=5 water_polygons=47 water_polygons_labels=30]
+  z9/282/187 (43.305,18.665): contours=0  [boundaries=2 land=1 place_labels=13 streets=2 water_lines=2 water_polygons=21 water_polygons_labels=21]
+  z10/565/375 (43.305,18.665): contours=0  [boundaries=1 land=5 place_labels=72 streets=3 water_lines=2 water_polygons=14 water_polygons_labels=16]
+  z11/1130/750 (43.305,18.665): contours=1  [contours=1 boundaries=1 land=7 place_labels=63 streets=3 water_lines=1 water_polygons=4 water_polygons_labels=11]
+  z12/2260/1500 (43.305,18.665): contours=1  [contours=1 boundaries=1 land=6 place_labels=19 street_labels=2 streets=8 water_lines=1 water_lines_labels=1 water_polygons=3 water_polygons_labels=3]
+  z13/4520/3000 (43.305,18.665): contours=1  [contours=1 land=5 place_labels=2 street_labels=2 streets=9 water_lines=1 water_lines_labels=1 water_polygons=1 water_polygons_labels=1]
+  z14/9041/6001 (43.305,18.665): contours=1  [contours=1 land=3 street_labels=1 streets=7 water_lines=2 water_lines_labels=1]
+
